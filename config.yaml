@@ -1,0 +1,13 @@
+picovoice_access_key: "Su+3ANWBjqu8une832u9Vhdc0Iy6Xb7QkZrp6nKL/axxCRdZCvkebg=="
+keyword_paths:
+  - "hey_assistant.ppn"
+model_size: "small"
+device: "cpu"
+compute_type: "int8"
+beam_size: 1
+language: "en-US"
+sample_rate: 16000
+vad_aggressiveness: 2
+mode: "hotkey" # options: trigger, hotkey, both
+mic_name: "" # optional: name (or substring) of mic device; on macOS defaults to built-in
+wake_sensitivity: 0.3 # float [0.0,1.0]: wake-word sensitivity (higher = more sensitive)
