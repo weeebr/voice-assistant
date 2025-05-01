@@ -35,40 +35,43 @@ echo "⚡ Activating virtual environment..."
 source "$VENV_DIR/bin/activate"
 echo "✅ Virtual environment activated (`which python`)."
 
-# 3. Install/Update Dependencies
+# 3. Upgrade Pip
+echo "⏫ Upgrading pip within the virtual environment..."
+pip install --quiet --disable-pip-version-check --upgrade pip
+if [ $? -ne 0 ]; then
+    echo "⚠️ Failed to upgrade pip (continuing anyway)..."
+fi
+echo "✅ Pip upgrade checked."
+
+# 4. Install/Update Dependencies
 echo "📦 Installing/updating dependencies from '$REQUIREMENTS_FILE'..."
 pip install --quiet --disable-pip-version-check -r "$REQUIREMENTS_FILE"
 if [ $? -ne 0 ]; then
     echo "❌ Failed to install dependencies from $REQUIREMENTS_FILE."
-    # Optional: Deactivate before exiting on error?
-    # deactivate
     exit 1
 fi
 echo "✅ Dependencies checked/installed."
 
-# 4. Install Local Package in Editable Mode
+# 5. Install Local Package in Editable Mode
 echo "🛠️ Ensuring local package is installed in editable mode..."
 pip install --quiet --disable-pip-version-check -e .
 if [ $? -ne 0 ]; then
     echo "❌ Failed to install local package in editable mode."
-    # deactivate
     exit 1
 fi
 echo "✅ Local package installation checked."
 
-# 5. Run the Application
-echo "▶️ Starting Voice Assistant..."
-echo "(Running command: $PACKAGE_ENTRY_POINT $@)" # Show the command being run
+# 6. Run the Application via Module
+MODULE_PATH="src.local_voice_assistant.cli"
+echo "▶️ Starting Voice Assistant (using module: $MODULE_PATH)..."
+echo "(Running command: python -m $MODULE_PATH $@)" # Show the command being run
 echo "-------------------------------------"
 
-# Execute the voice assistant command, passing all script arguments ($@)
-# Use exec to replace the shell process with the voice-assistant process
-# This ensures signals (like Ctrl+C) go directly to the application.
-exec "$PACKAGE_ENTRY_POINT" "$@"
+# Execute the Python module directly, passing all script arguments ($@)
+# Use exec to replace the shell process with the Python process
+exec "$PYTHON_EXEC" -m "$MODULE_PATH" "$@"
 
 # Note: The script won't reach here if 'exec' is used successfully.
-# If 'exec' fails (e.g., command not found), the script will exit due to set -e.
-# Adding a fallback message just in case.
 echo "-------------------------------------"
-echo "❌ Failed to execute '$PACKAGE_ENTRY_POINT'. Please ensure it's installed correctly in the venv."
+echo "❌ Failed to execute Python module '$MODULE_PATH'."
 exit 1 

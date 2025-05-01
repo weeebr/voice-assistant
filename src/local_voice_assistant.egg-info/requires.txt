@@ -1,7 +1,0 @@
-faster-whisper>=1.0.0
-soundcard==0.4.4
-webrtcvad>=2.0.10
-pynput>=1.7.6
-numpy>=1.21.0
-anthropic>=0.3.0
-httpx>=0.23.0

@@ -2,6 +2,18 @@ import argparse
 import yaml
 import logging
 import sys
+from dotenv import load_dotenv
+import os
+
+# --- Load .env file immediately ---
+load_dotenv() # <-- Call earlier, before other imports try to use env vars
+logger_env_check = logging.getLogger('dotenv_check') # Temp logger
+api_key_check = os.getenv("ANTHROPIC_API_KEY")
+if api_key_check:
+    logger_env_check.debug(".env loaded, ANTHROPIC_API_KEY found.")
+else:
+    logger_env_check.debug(".env loaded, ANTHROPIC_API_KEY *not* found.")
+# ---------------------------------
 
 # Get a logger instance specific to this module
 logger = logging.getLogger(__name__)
@@ -30,7 +42,7 @@ def setup_logging():
 setup_logging() # Call configuration immediately
 
 # --- Now import application modules ---
-# This ensures logging is set up *before* Orchestrator or its deps are imported
+# Orchestrator import now happens *after* load_dotenv() has run
 from .orchestrator import Orchestrator
 
 def main():
@@ -48,9 +60,9 @@ def main():
     
     # Load config file
     try:
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
-        logging.info(f"Loaded configuration from: {args.config}")
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+            logging.info(f"Loaded configuration from: {args.config}")
     except FileNotFoundError:
          logging.error(f"Configuration file not found: {args.config}")
          return

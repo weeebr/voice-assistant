@@ -34,9 +34,9 @@ class SpeechToText:
 
         try:
             # Combine frames into a single float32 numpy array (Whisper format)
-        audio = np.concatenate([
-            np.frombuffer(f, dtype=np.int16) for f in frames
-        ]).astype(np.float32) / 32768.0
+            audio = np.concatenate([
+                np.frombuffer(f, dtype=np.int16) for f in frames
+            ]).astype(np.float32) / 32768.0
         except ValueError as e:
             logger.error(f"Error combining audio frames (maybe empty list?): {e}")
             return
@@ -78,11 +78,11 @@ class SpeechToText:
         finally:
             # Ensure stdout/stderr are restored even if errors occur
             try:
-            os.dup2(old_stdout, stdout_fd)
-            os.dup2(old_stderr, stderr_fd)
-            os.close(devnull)
-            os.close(old_stdout)
-            os.close(old_stderr)
+                os.dup2(old_stdout, stdout_fd)
+                os.dup2(old_stderr, stderr_fd)
+                os.close(devnull)
+                os.close(old_stdout)
+                os.close(old_stderr)
                 logger.debug("Restored stdout/stderr.")
             except OSError as e:
                  logger.error(f"Error restoring std streams: {e}")

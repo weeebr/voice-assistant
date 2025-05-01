@@ -4,9 +4,11 @@ import logging
 import subprocess
 import os
 import string # <-- Add import
+import numpy as np # <-- Add numpy import
+import sounddevice as sd # <-- Add sounddevice import
 # Initialize Anthropic client for Swiss German translation (requires ANTHROPIC_API_KEY)
 try:
-    from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
+    from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT, APIError
     import httpx
     _anthropic_client = None
     _api_key = os.getenv("ANTHROPIC_API_KEY") # Use env var
@@ -50,6 +52,8 @@ class Orchestrator:
         self.stop_recording_event = threading.Event() # Signal to stop recording
         self.listener_thread = None # Thread for the pynput listener
         self._last_paste_successful = False # Add flag to track successful paste
+        self.translation_mode = None # <-- Add translation mode state
+        self.min_duration_beep_played = False # <-- Add flag
         
         # Audio components
         self.audio = AudioCapture(
@@ -120,6 +124,7 @@ class Orchestrator:
                     logger.debug("Cmd pressed, starting recording...")
                     self.cmd_held = True
                     self.cancel_requested = False
+                    self.min_duration_beep_played = False # <-- Reset flag here
                     self.stop_recording_event.clear() # Ensure event is clear before starting
                     self.ptt_start_time = time.monotonic()
                     
@@ -218,11 +223,17 @@ class Orchestrator:
             logger.debug("🔊 Audio stream opened for PTT recording.")
 
             while not stop_event.is_set():
+                # --- Check for minimum duration beep ---
+                now = time.monotonic()
+                elapsed = now - start_time
+                if not self.min_duration_beep_played and elapsed >= self.MIN_PTT_DURATION:
+                    self.min_duration_beep_played = True
+                    threading.Thread(target=self._play_beep, daemon=True).start()
+                # -------------------------------------
+
                 try:
                     frame = next(stream)
                     frames.append(frame)
-                    # Add a small sleep to prevent tight loop if stream provides data very fast?
-                    # time.sleep(0.001) 
                 except StopIteration:
                     logger.warning("⚠️ Audio stream ended unexpectedly during loop.")
                     break # Exit loop if stream ends
@@ -259,6 +270,7 @@ class Orchestrator:
        
         accumulated_raw_text = ""
         all_segments = []
+        text_to_paste = None # Variable to hold the final text for pasting
 
         try:
             # REMOVED: Initial quick transcription block for trigger words
@@ -292,33 +304,85 @@ class Orchestrator:
             final_full_sanitized_text = accumulated_raw_text.strip()
             logger.info(f"📝 Full transcription complete (Sanitized): '{final_full_sanitized_text}'")
 
-            # --- Final Check and Paste ---
-            # Convert to lowercase, remove punctuation, and strip whitespace for the check
+            # Clean the text for checks
             final_text_check = final_full_sanitized_text.lower().translate(str.maketrans('', '', string.punctuation)).strip()
-            if final_text_check == "you":
-                logger.info("🙅‍♀️ Detected only 'you' (after cleaning), skipping paste and final clipboard update.")
-            elif final_full_sanitized_text: # Check if original wasn't empty either
-                logger.info(f"✅ Final check OK. Copying and pasting full text: '{final_full_sanitized_text}'")
-                self._copy_and_paste_final(final_full_sanitized_text) # Call the single copy/paste method
-            else:
-                logger.info("🤷 No text transcribed, skipping paste.")
 
-            # Trigger word checks skipped
-            logger.debug("🔍 Trigger word checks skipped.")
+            # --- Filter 'you' ---
+            if final_text_check == "you":
+                logger.info("🙅‍♀️ Detected only 'you' (after cleaning), skipping.")
+                text_to_paste = None # Ensure nothing gets processed further or pasted
+            # --- Mode Switching Logic ---
+            # Check only if it wasn't 'you'
+            elif final_text_check == "swiss german":
+                if self.translation_mode != "swiss_german":
+                    logger.info("🇨🇭 Mode switched ON: Translate next input to Swiss German.")
+                    self.translation_mode = "swiss_german"
+                    if self.overlay: self.overlay.show_message("Mode: Swiss German 🇨🇭", group_id=None)
+                else:
+                    logger.info("🇨🇭 Mode already Swiss German. No change.")
+                text_to_paste = None # Don't paste the command itself
+            elif final_text_check == "german":
+                if self.translation_mode is not None:
+                    logger.info("🇩🇪 Mode switched OFF (Detected 'german').")
+                    self.translation_mode = None
+                    if self.overlay: self.overlay.show_message("Mode: OFF (German 🇩🇪)", group_id=None)
+                else:
+                     logger.info("🇩🇪 Mode already OFF. No change.")
+                text_to_paste = None # Don't paste the command itself
+            elif final_text_check == "english":
+                 if self.translation_mode is not None:
+                    logger.info("🇬🇧 Mode switched OFF (Detected 'english').")
+                    self.translation_mode = None
+                    if self.overlay: self.overlay.show_message("Mode: OFF (English 🇬🇧)", group_id=None)
+                 else:
+                      logger.info("🇬🇧 Mode already OFF. No change.")
+                 text_to_paste = None # Don't paste the command itself
+            # --- Regular Text Processing (if not 'you' and not a mode command) ---
+            elif final_full_sanitized_text: # Check original text isn't empty
+                text_to_paste = final_full_sanitized_text # Start with the original text
+
+                # --- Translation Step ---
+                if self.translation_mode == "swiss_german":
+                    logger.info(f"🇨🇭 Mode=SG. Attempting translation for: '{text_to_paste}'")
+                    if self.overlay: self.overlay.show_message("Translating (SG)...") # Show translating status
+                    
+                    translated_text = self._translate_to_swiss_german(text_to_paste)
+                    
+                    if translated_text:
+                        logger.info(f"🇨🇭 Translation successful: '{translated_text}'")
+                        text_to_paste = translated_text # Use translated text
+                        # Update overlay? Maybe show "Translation complete..." briefly?
+                        # if self.overlay: self.overlay.show_message("Translation complete!") # Might conflict with 'Text pasted!'
+                    else:
+                        logger.warning("⚠️ Translation to Swiss German failed or skipped. Pasting original text.")
+                        # Optionally clear mode if translation consistently fails?
+                        # Keep original text_to_paste
+            
+            # If text_to_paste is still None here, it means it was empty initially or filtered.
+            if text_to_paste is None and final_full_sanitized_text and not (final_text_check in ["you", "swiss german", "german", "english"]):
+                 logger.warning(f"Text '{final_full_sanitized_text}' became None unexpectedly after checks.") # Should not happen
 
         except Exception as e:
             logger.exception(f"💥 Unhandled error in audio processing pipeline: {e}")
         finally:
-            # Final notification about completion - only show if text was actually pasted.
+            # --- Final Paste ---
+            if text_to_paste: # Check if we have something valid to paste
+                logger.info(f"✅ Proceeding to copy and paste: '{text_to_paste}'")
+                self._copy_and_paste_final(text_to_paste)
+            else:
+                logger.info("🤷 No valid text to paste (empty, 'you', mode command, or error).")
+
+            # --- Final Notification ---
             if self.overlay:
                  if self._last_paste_successful:
                      logger.debug("ATTEMPT: Showing 'Text pasted!' notification")
-                     self.overlay.show_message("Text pasted!")
-                 else:
-                      # Maybe show a generic "Processing complete" if nothing was pasted but it finished?
-                      # Or just hide immediately? Let's hide for now.
-                      logger.debug("Skipping 'Text pasted!' notification (paste unsuccessful or skipped). Hiding overlay.")
-                      self.overlay.hide_overlay() # Or remove notification group? Needs testing.
+                     self.overlay.show_message("Text pasted!") # Shows after successful paste
+                 elif text_to_paste is None and final_text_check in ["swiss german", "german", "english"]:
+                     # Don't hide overlay immediately after mode switch, notification is already shown
+                     logger.debug("Mode switch detected, overlay message already shown.")
+                 else: # Hide if paste was skipped/failed (and not a mode switch)
+                     logger.debug("Skipping 'Text pasted!' notification (paste unsuccessful or skipped). Hiding overlay.")
+                     self.overlay.hide_overlay() # Or remove notification group? Needs testing.
 
             logger.info("🏁 Audio processing pipeline finished.")
 
@@ -392,3 +456,75 @@ class Orchestrator:
         self._simulate_paste_keystroke() 
         
         # The _simulate_paste_keystroke method sets self._last_paste_successful
+
+    def _translate_to_swiss_german(self, text):
+        """Translates text to Swiss German using the Anthropic API."""
+        if not _anthropic_client:
+            logger.error("🤖❌ Anthropic client not available. Cannot translate.")
+            return None
+        if not text:
+            logger.warning("⚠️ Translation requested for empty text. Skipping.")
+            return None
+
+        logger.debug(f"Sending to Anthropic for SG translation: '{text}'")
+        try:
+            # Improved prompt assuming input might be English or German
+            prompt = (
+                f"{HUMAN_PROMPT}Translate the following text into Swiss German (Schweizerdeutsch). "
+                f"The input language might be English or German. Provide ONLY the Swiss German translation, "
+                f"without any explanations, commentary, or preamble.\\n\\n"
+                f"Input Text:\\n{text}\\n\\n"
+                f"Swiss German Translation:{AI_PROMPT}"
+            )
+            
+            # Use a potentially faster/cheaper model if available and suitable, like Haiku? Or stick with Claude 2.1/3 Sonnet?
+            # Let's stick with claude-2.1 for now as it was likely tested before. Adjust if needed.
+            completion = _anthropic_client.completions.create(
+                model="claude-2.1", 
+                max_tokens_to_sample=300, # Adjust as needed
+                prompt=prompt,
+                temperature=0.3, # Lower temperature for more deterministic translation
+            )
+            
+            translated_text = completion.completion.strip()
+            logger.debug(f"🤖 Anthropic response received: '{translated_text}'")
+            
+            # Basic check: Ensure response isn't empty or just echoing input (Claude sometimes does this on failure)
+            if not translated_text or translated_text.lower() == text.lower():
+                 logger.warning(f"⚠️ Anthropic translation result seems empty or is identical to input. Original: '{text}', Result: '{translated_text}'")
+                 return None # Treat as failure
+
+            return translated_text
+
+        except APIError as e:
+            logger.error(f"🤖❌ Anthropic API error during translation: {e}")
+            return None
+        except httpx.TimeoutException as e:
+            logger.error(f"🤖❌ Anthropic request timed out: {e}")
+            return None
+        except Exception as e:
+            logger.exception(f"🤖💥 Unexpected error during Anthropic translation: {e}")
+            return None
+
+    def _play_beep(self):
+        """Generates and plays a short beep sound in a separate thread."""
+        try:
+            samplerate = self.audio.sample_rate if self.audio else 16000 # Use audio interface rate or default
+            frequency = 440  # Hz (A4 note)
+            duration = 0.1   # seconds
+            amplitude = 0.38 # Reduce amplitude slightly from 0.42
+
+            t = np.linspace(0., duration, int(samplerate * duration), endpoint=False)
+            waveform = amplitude * np.sin(2. * np.pi * frequency * t)
+
+            # Ensure waveform is float32, required by some sounddevice backends
+            waveform = waveform.astype(np.float32) 
+
+            sd.play(waveform, samplerate)
+            # sd.wait() # Don't wait here, let it play in the background
+            logger.debug(f"🔊 Beep initiated (Freq: {frequency}Hz, Dur: {duration}s)")
+        except AttributeError as e:
+             # Handle case where self.audio might not be fully initialized if error occurs early
+             logger.error(f"🔊 Error playing beep (Audio interface not ready?): {e}")
+        except Exception as e:
+            logger.error(f"🔊 Error playing beep sound: {e}")

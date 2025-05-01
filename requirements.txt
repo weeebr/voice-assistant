@@ -8,3 +8,8 @@ anthropic>=0.3.0
 httpx>=0.23.0
 # numpy is implicitly required by faster-whisper/soundcard
 # terminal-notifier is an external dependency (install via brew)
+sounddevice
+torch
+# Add dotenv
+python-dotenv
+numpy

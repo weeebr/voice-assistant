@@ -1,3 +1,0 @@
-[console_scripts]
-voice-assistant = local_voice_assistant.cli:main
-
