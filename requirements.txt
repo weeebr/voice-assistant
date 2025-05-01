@@ -1,14 +1,10 @@
-faster-whisper>=1.0.0
-soundcard>=0.4.4
-pvporcupine>=2.2.0
+faster-whisper>=0.10.0
+soundcard==0.4.4
 webrtcvad>=2.0.10
 pynput>=1.7.6
-language-tool-python>=2.7.1
-scipy>=1.7.0
-numpy>=1.21.0
-# Optional for Swiss German translation via Claude
+PyYAML>=6.0
+# Dependencies for Swiss German Translation:
 anthropic>=0.3.0
-# Optional for local LLM support:
-llama-cpp-python>=0.1.0
-transformers>=4.0.0
-torch>=1.13.0
+httpx>=0.23.0
+# numpy is implicitly required by faster-whisper/soundcard
+# terminal-notifier is an external dependency (install via brew)
