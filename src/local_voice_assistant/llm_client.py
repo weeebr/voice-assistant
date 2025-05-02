@@ -16,19 +16,29 @@ try:
 except ImportError:
     GOOGLE_AVAILABLE = False
 
+# --- NEW: Add OpenAI ---    
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+# -----------------------
+
 logger = logging.getLogger(__name__)
 
 class LLMClient:
     """Manages initialization and interaction with different LLM providers."""
 
     # Default model IDs if not overridden
-    DEFAULT_GOOGLE_MODEL = "gemini-1.5-pro-latest" 
+    DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-exp-03-25" 
     DEFAULT_ANTHROPIC_MODEL = "claude-3-haiku-20240307"
+    DEFAULT_OPENAI_MODEL = "gpt-4o" # <-- Added OpenAI default
     
     # --- NEW: Keywords for dynamic provider detection ---
     PROVIDER_KEYWORDS = {
         'anthropic': ['claude'],
         'google': ['gemini'],
+        'openai': ['gpt'], # <-- Added OpenAI keywords
         # Add more if needed, e.g., 'openai': ['gpt']
     }
     # ----------------------------------------------------
@@ -36,9 +46,10 @@ class LLMClient:
     def __init__(self, config):
         """Initializes the LLM clients based on configuration and API keys."""
         self.config = config
-        self.provider = config.get('llm_provider', 'anthropic').lower() # Default configured provider
+        self.provider = config.get('llm_provider', 'openai').lower() # Default configured provider
         self._anthropic_client = None
-        self._google_client = None
+        self._google_client_module = None
+        self._openai_client = None # <-- Added OpenAI client instance variable
 
         # Initialize Anthropic client (if available and key set)
         if ANTHROPIC_AVAILABLE:
@@ -68,24 +79,46 @@ class LLMClient:
             # else: logger.warning("✨ Google AI client disabled: GOOGLE_API_KEY not set.")
         # else: logger.warning("✨ Google AI client disabled: 'google-generativeai' package not installed.")
 
+        # --- NEW: Initialize OpenAI client --- 
+        if OPENAI_AVAILABLE:
+            logger.debug("Attempting to initialize OpenAI client...")
+            _openai_api_key = os.getenv("OPENAI_API_KEY")
+            if _openai_api_key:
+                logger.debug("OPENAI_API_KEY found in environment.")
+                try:
+                    self._openai_client = openai.OpenAI(api_key=_openai_api_key)
+                    logger.info("○ OpenAI client initialized successfully (GPT).")
+                except Exception as e:
+                    # Log the specific error during OpenAI client creation
+                    logger.error(f"○❌ OpenAI client initialization failed: {e}", exc_info=True)
+            else:
+                logger.warning("○ OpenAI client disabled: OPENAI_API_KEY not found in environment.")
+        else:
+             logger.warning("○ OpenAI client disabled: 'openai' package not installed or import failed.")
+        # ------------------------------------
+
         # Log final status
         provider_status = []
         if self._anthropic_client: provider_status.append("Anthropic(✅)")
         if hasattr(self, '_google_client_module'): provider_status.append("Google(✅)")
-        logger.info(f"LLM Client Status: Default Provider='{self.provider}', Available=[{', '.join(provider_status)}]")
+        if self._openai_client: provider_status.append("OpenAI(✅)") # <-- Added OpenAI status
+        logger.info(f"LLM Client Status: Default Provider='{self.provider}', Available=[{', '.join(provider_status) if provider_status else 'None'}]")
         
         # Log potential issues clearly
         if self.provider == 'google' and not hasattr(self, '_google_client_module'):
              logger.error(f"LLM provider set to 'google' but client failed to initialize!")
         elif self.provider == 'anthropic' and not self._anthropic_client:
              logger.error(f"LLM provider set to 'anthropic' but client failed to initialize!")
+        elif self.provider == 'openai' and not self._openai_client: # <-- Added OpenAI check
+             logger.error(f"LLM provider set to 'openai' but client failed to initialize!")
 
 
-    def transform_text(self, prompt: str, model_override: str | None = None) -> str | None:
+    def transform_text(self, prompt: str, notification_manager, model_override: str | None = None) -> str | None:
         """
         Sends the prompt to an LLM provider and returns the text response.
         Dynamically selects the provider based on model_override if possible, 
         otherwise uses the default configured provider.
+        Also triggers a notification via the provided notification_manager.
         """
         
         if not prompt:
@@ -107,6 +140,8 @@ class LLMClient:
                         client_available = True
                     elif provider_key == 'google' and hasattr(self, '_google_client_module'):
                         client_available = True
+                    elif provider_key == 'openai' and self._openai_client: # <-- Check OpenAI client
+                        client_available = True
                     # Add elif for other providers here
                         
                     if client_available:
@@ -124,6 +159,8 @@ class LLMClient:
             final_model_id = model_override if model_override else self.DEFAULT_GOOGLE_MODEL
         elif target_provider == 'anthropic':
             final_model_id = model_override if model_override else self.DEFAULT_ANTHROPIC_MODEL
+        elif target_provider == 'openai': # <-- Added OpenAI model ID
+             final_model_id = model_override if model_override else self.DEFAULT_OPENAI_MODEL
         # Add elif for other providers
         else:
              logger.error(f"❌ Invalid LLM provider determined: '{target_provider}'. Cannot proceed.")
@@ -135,15 +172,24 @@ class LLMClient:
         # --- Call Appropriate Helper Method ---
         if target_provider == 'google':
             if hasattr(self, '_google_client_module'):
-                return self._call_google(prompt, final_model_id)
+                # Pass notification_manager down
+                return self._call_google(prompt, final_model_id, notification_manager)
             else:
                  logger.error("✨❌ Google AI client not available for transformation.")
                  return None
         elif target_provider == 'anthropic':
             if self._anthropic_client:
-                 return self._call_anthropic(prompt, final_model_id)
+                 # Pass notification_manager down
+                 return self._call_anthropic(prompt, final_model_id, notification_manager)
             else:
                  logger.error("🤖❌ Anthropic client not available for transformation.")
+                 return None
+        elif target_provider == 'openai': # <-- Added OpenAI dispatch
+            if self._openai_client:
+                 # Pass notification_manager down
+                 return self._call_openai(prompt, final_model_id, notification_manager)
+            else:
+                 logger.error("○❌ OpenAI client not available for transformation.")
                  return None
         # Add elif for other providers
         else:
@@ -153,8 +199,14 @@ class LLMClient:
             
     # --- Private Helper Methods for API Calls ---
 
-    def _call_google(self, prompt: str, model_id: str) -> str | None:
-        """Handles the API call to Google Gemini."""
+    def _call_google(self, prompt: str, model_id: str, notification_manager) -> str | None:
+        """Handles the API call to Google Gemini, including notification."""
+        # --- Show Notification --- 
+        if notification_manager:
+             notification_manager.show_message(f"🧠 Calling Google: {model_id}")
+        else:
+            logger.warning("NotificationManager not provided to _call_google")
+        # -----------------------
         logger.debug(f"Sending prompt to Google Gemini (Model: {model_id}): '{prompt[:100]}...'")
         try:
             # Get the model instance from the stored module
@@ -192,8 +244,14 @@ class LLMClient:
             logger.exception(f"✨💥 Unexpected error during Google Gemini transformation (Model: {model_id}): {e}")
             return None
 
-    def _call_anthropic(self, prompt: str, model_id: str) -> str | None:
-        """Handles the API call to Anthropic Claude."""
+    def _call_anthropic(self, prompt: str, model_id: str, notification_manager) -> str | None:
+        """Handles the API call to Anthropic Claude, including notification."""
+        # --- Show Notification --- 
+        if notification_manager:
+             notification_manager.show_message(f"🧠 Calling Anthropic: {model_id}")
+        else:
+            logger.warning("NotificationManager not provided to _call_anthropic")
+        # -----------------------
         logger.debug(f"Sending prompt to Anthropic Claude (Model: {model_id}): '{prompt[:100]}...'")
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -225,6 +283,48 @@ class LLMClient:
             return None
         except Exception as e:
             logger.exception(f"🤖💥 Unexpected error during Anthropic transformation (Model: {model_id}): {e}")
+            return None
+
+    # --- NEW: Helper for OpenAI --- 
+    def _call_openai(self, prompt: str, model_id: str, notification_manager) -> str | None:
+        """Handles the API call to OpenAI GPT, including notification."""
+        # --- Show Notification --- 
+        if notification_manager:
+             notification_manager.show_message(f"🧠 Calling OpenAI: {model_id}")
+        else:
+            logger.warning("NotificationManager not provided to _call_openai")
+        # -----------------------
+        logger.debug(f"Sending prompt to OpenAI GPT (Model: {model_id}): '{prompt[:100]}...'")
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            completion = self._openai_client.chat.completions.create(
+                model=model_id, 
+                messages=messages,
+                max_tokens=self.config.get('openai_max_tokens', 1000), # Make configurable
+                temperature=self.config.get('openai_temperature', 0.7), # Make configurable
+            )
+            
+            if completion.choices and len(completion.choices) > 0 and completion.choices[0].message:
+                response_text = completion.choices[0].message.content
+                if response_text:
+                    response_text = response_text.strip()
+                    if not response_text:
+                         logger.warning(f"⚠️ OpenAI LLM transformation result is empty (Model: {model_id}).")
+                         return None 
+                    logger.debug(f"○ OpenAI response received (Model: {model_id}): '{response_text[:100]}...'")
+                    return response_text
+                else:
+                     logger.warning(f"⚠️ OpenAI response message content is empty (Model: {model_id}).")
+                     return None
+            else:
+                logger.warning(f"⚠️ OpenAI response choices are empty or missing expected structure (Model: {model_id}). Response: {completion}")
+                return None
+        # Refine error handling based on OpenAI library specifics
+        except openai.APIError as e:
+             logger.error(f"○❌ OpenAI API error (Model: {model_id}): {e.status_code} - {e.message}")
+             return None
+        except Exception as e:
+            logger.exception(f"○💥 Unexpected error during OpenAI transformation (Model: {model_id}): {e}")
             return None
 
 # --- Removed old monolithic transform_text logic ---

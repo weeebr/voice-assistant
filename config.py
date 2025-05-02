@@ -40,7 +40,7 @@ Then, start with the largest files and refactor our codebase enforcing:
     "name": "short summary",
     "signal_phrase": "short",
     "match_position": "start",
-    "action": ["llm:claude-3-haiku-20240307"],
+    "action": ["llm"],
     "template": "Summarize the following text in bullet points using mostly keywords or very short phrases: {clipboard}"
   }
 ]

@@ -292,8 +292,14 @@ class AudioProcessor:
                         if formatted_text is not None: # Proceed only if formatting was successful (or fallback used)
                             if llm_requested:
                                 try:
-                                    self.notification_manager.show_message(f"🧠 Calling LLM: {llm_model_override or self.config.get('llm_model') or '???'}")
-                                    text_to_paste = self.llm_client.transform_text(formatted_text, llm_model_override)
+                                    # --- Pass notification_manager to transform_text --- 
+                                    # Notification is now handled *inside* LLMClient helpers
+                                    # self.notification_manager.show_message(f"🧠 Calling LLM: {llm_model_override or self.config.get('llm_model') or '???'}")
+                                    text_to_paste = self.llm_client.transform_text(
+                                        formatted_text, 
+                                        notification_manager=self.notification_manager, # <-- Pass it here
+                                        model_override=llm_model_override
+                                    )
                                 except Exception as e:
                                     logger.exception(f"💥 Error during LLM action for signal '{matched_signal_display}': {e}")
                                     text_to_paste = None # Ensure failure results in None

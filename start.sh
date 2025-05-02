@@ -4,7 +4,8 @@ set -euo pipefail
 
 # --- Configuration ---
 VENV_DIR="venv"                      # Name of the virtual environment directory
-PYTHON_EXEC="python3"                # Command to use for Python 3
+# Use the specific Python where libraries were installed
+PYTHON_EXEC="/Library/Frameworks/Python.framework/Versions/3.10/bin/python3" # Command to use for Python 3
 REQUIREMENTS_FILE="requirements.txt" # Path to your requirements file
 PACKAGE_ENTRY_POINT="voice-assistant" # The command provided by your package
 

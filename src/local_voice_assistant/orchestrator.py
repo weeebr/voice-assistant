@@ -224,7 +224,7 @@ class Orchestrator:
                 if not frames:
                     logger.warning("⚠️ No audio frames captured. Skipping.")
                 else:
-                    logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
+                        logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
         self.notification_manager.hide_overlay()
 
     def _handle_ptt_cancel(self):
