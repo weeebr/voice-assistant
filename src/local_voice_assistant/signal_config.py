@@ -34,6 +34,12 @@ def _handle_passthrough(self_ref, remaining_text):
 #    'set_mode': Set self.translation_mode (for SG translation) for future use.
 #    'set_next_stt': Set language hint ONLY for the *next* transcription.
 #    'set_next_stt_and_passthrough': Set hint for next AND paste remainder now.
+
+folders_to_ignore = [".git", "venv", "node_modules"]
+folders_to_ignore_string = ' '.join([f"-o -path {folder}" for folder in folders_to_ignore])
+# Corrected: Use {{}} for literal braces in f-string for find command
+find_command = f"`find . \( {folders_to_ignore_string} \) -prune -o -type f -exec wc -l {{}} +`"
+
 SIGNAL_WORD_CONFIG = {
     # == State Setting Commands (Exact Match Only - For NEXT utterance) ==
     "swiss_german_mode_only": {
@@ -59,60 +65,29 @@ SIGNAL_WORD_CONFIG = {
     },
     
     # == Text Transformation Keywords (Operate on transcribed text) ==
-    "fix_command": { 
-        "signal_phrase": "fix",
+    "big_files_command": { 
+        "signal_phrase": "big files",
         "match_position": "start", 
         "action": "transform",    
-        "handler": lambda self_ref, recorded_text: (
-            logger.debug("Executing 'fix_command' lambda handler"),
-            (self_ref.overlay.show_message("🧠 Asking Fix Expert...") if self_ref.overlay else None),
-            self_ref._get_llm_transformation(f"Act as a world-renowned expert... Task: {recorded_text}")
-        )
+        # No LLM needed, clipboard not needed
+        "handler": lambda llm_client, clipboard_manager, recorded_text: f"""Use the following command to find our largest files: `{find_command}`. Then, start with the largest files and refactor our codebase enforcing:
+- to not lose or break existing logic
+- to have a well-organized project structure, following best practise of the current tech stack
+- to have no DRY violations, no unused code, no unused imports
+- all files are atomic and serve a single purpose
+- all files to not have more than 300 lines of code"""
     },
-    "debug_command": {
-        "signal_phrase": "debug",
-        "match_position": "anywhere", 
-        "action": "transform",
-        "handler": lambda self_ref, recorded_text: (
-            logger.debug("Executing 'debug_command' lambda handler"),
-            (self_ref.overlay.show_message("🧠 Asking Debug Expert...") if self_ref.overlay else None),
-            self_ref._get_llm_transformation(f"Act as a senior software engineer... Issue: {recorded_text}")
-        )
-    },
-    "email_command": {
-        "signal_phrase": "email",
-        "action": "transform",
-        "handler": lambda self_ref, recorded_text: (
-            logger.debug("Executing 'email_command' lambda handler"),
-            f"Subject: \n\nBody:\n{recorded_text}"
-        )
-    },
-    "reply_command": {
-        "signal_phrase": "reply",
+    "short_summary_command": {
+        # NOTE: The signal phrase was "fix" above, which seems wrong for summarize.
+        # Changed to "summarize". Please verify.
+        "signal_phrase": "short", 
         "match_position": "start", 
         "action": "transform",
-        "handler": lambda self_ref, recorded_text: (
-            logger.debug("Executing 'reply_command' lambda handler"),
-            f"Subject: Re: \n\n{recorded_text}"
-        )
-    },
-    "explain_command": {
-        "signal_phrase": "explain",
-        "action": "transform",
-        "handler": lambda self_ref, recorded_text: (
-            logger.debug("Executing 'explain_command' lambda handler"),
-            (self_ref.overlay.show_message("🧠 Asking Explainer...") if self_ref.overlay else None),
-            self_ref._get_llm_transformation(f"Explain the following concept clearly... Topic: {recorded_text}")
-        )
-    },
-    "summarize_command": {
-        "signal_phrase": "summarize",
-        "match_position": "start", 
-        "action": "transform",
-        "handler": lambda self_ref, recorded_text: (
-            logger.debug("Executing 'summarize_command' lambda handler"),
-            (self_ref.overlay.show_message("🧠 Summarizing...") if self_ref.overlay else None),
-            self_ref._get_llm_transformation(f"Summarize the key points concisely: {recorded_text}")
+        # Use LLMClient, also gets clipboard content
+        "handler": lambda llm_client, clipboard_manager, recorded_text: llm_client.transform_text(
+            f"Summarize the following text in bullet points using mostly keywords or very short phrases: {clipboard_manager.get_content()}", # Use clipboard_manager
+            # Example: Override to a faster model for summarization if desired
+            # model_override="claude-3-haiku-20240307" 
         )
     }
 }

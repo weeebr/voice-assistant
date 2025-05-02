@@ -1,18 +1,13 @@
 # Configuration for Local Voice Assistant (PTT Mode)
 
 model_size: "small" # Whisper model size (e.g., tiny, base, small, medium). Smaller = faster, less RAM.
-# model_size: "tiny.en" # Example: English-only tiny model
 device: "cpu" # Device for STT model ('cpu', 'cuda', 'mps')
 compute_type: "int8" # Quantization type ('int8', 'float16', 'float32')
 beam_size: 1 # Beam size for Whisper transcription (1 = greedy, faster)
-language: "en-US" # Default language (used for formatting, can be changed via voice command)
+language: "en-US" # Default language for STT (e.g., en-US, de-DE, fr-FR)
 sample_rate: 16000 # Audio sample rate (must match STT model requirement)
 vad_aggressiveness: 2 # VAD aggressiveness (0-3, higher = less sensitive)
-mic_name:
-  "" # Optional: name (or substring) of mic device.
-  # Leave empty for default. On macOS, often 'Built-in Microphone'.
-# --- Obsolete / Removed Settings ---
-# picovoice_access_key: "..."
-# keyword_paths: ["..."]
-# wake_sensitivity: 0.3
-# mode: "trigger" # Only hotkey mode is supported now
+mic_name: "" # Optional: name (or substring) of mic device.
+llm_provider: "google" # Added: Specify 'google' or 'anthropic'
+ptt_hotkey: "option" # Name of the key for PTT (e.g., "option", "cmd", "ctrl", "shift")
+min_ptt_duration: 1.2 # Already defined as constant in Orchestrator class
