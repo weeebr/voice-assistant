@@ -18,7 +18,6 @@ from types import MethodType # For binding handlers if still used elsewhere, may
 import platform # Needed for macOS check potentially
 
 # Import the configuration from the separate file
-from .signal_config import SIGNAL_WORD_CONFIG
 from .system_playback import SystemPlaybackManager # Added Import
 from .clipboard import ClipboardManager # Added Import
 from .llm_client import LLMClient # Added Import
@@ -62,7 +61,7 @@ class Orchestrator:
         # Add other keys if needed (e.g., F-keys?)
     }
     DEFAULT_PTT_KEY_NAME = "option" # Fallback if config is invalid
-
+    
     def __init__(self, config):
         logger.debug("Orchestrator initializing...")
         self.config = config
@@ -187,28 +186,22 @@ class Orchestrator:
              return
              
         self.cancel_requested = False
+        # Start recording and keep the thread reference
         self.active_recording_thread = self.audio_recorder.start_recording()
         
-        # --- Show Signal Phrases Notification --- 
+        # --- Show Signal Phrases Notification (Using new AudioProcessor method) --- 
         try:
-            signal_phrases = [
-                cfg.get('signal_phrase')
-                for cfg in SIGNAL_WORD_CONFIG.values()
-                if cfg.get('signal_phrase') and cfg.get('action') != 'set_next_stt' and cfg.get('action') != 'set_mode'
-            ]
-
+            signal_phrases = self.audio_processor.get_configured_signal_phrases()
+            
             if signal_phrases:
-                # Simple bulleted list
-                message =" ⋅ ".join(sorted(signal_phrases))
-                self.notification_manager.show_message(message)
-            else:
-                logger.debug("No signal phrases found in config to display.")
-            self.notification_manager.show_message("Start recording... 🇨🇭 🇩🇪 🇺🇸 \n" + message)
+                # Create a concise string of phrases
+                display_string = " ⋅ ".join(signal_phrases)
+                logger.info(f"🚦 Displaying start notification with signals: {display_string}")
+                self.notification_manager.show_message("Recording... 🇨🇭 🇩🇪 🇬🇧\n" + display_string)
         except Exception as e:
-            logger.error(f"Failed to generate signal phrase list for notification: {e}")
-        # ------------------------------------
-        
-        # Log is now handled inside audio_recorder.start_recording()
+             # Log error and show default message if fetching/displaying fails
+             logger.error(f"❌ Failed to get or display signal phrases: {e}")
+        # --------------------------------------------------------------------
 
     def _handle_ptt_stop(self):
         """Callback executed by HotkeyManager when PTT key is released."""
@@ -220,26 +213,19 @@ class Orchestrator:
         if self.cancel_requested:
             logger.info("🚫 Processing canceled via Esc key.")
             self.cancel_requested = False 
-            # Maybe show a "Cancelled" message?
             self.notification_manager.show_message("Cancelled") 
         else:
             logger.info(f"⏱️ PTT duration: {duration:.2f} seconds.")
-            # Process audio if duration meets minimum
             if frames and duration >= self.min_ptt_duration:
-                 logger.info(f"✅ Duration OK ({duration:.2f}s >= {self.min_ptt_duration}s). Processing...")
-                 # --- Use Notification Manager --- 
-                 self.notification_manager.show_message(f"Processing... [{duration:.2f}s]")
-                 # ------------------------------
-                 threading.Thread(target=self._process_audio, args=(frames,), daemon=True).start()
+                logger.info(f"✅ Duration OK ({duration:.2f}s >= {self.min_ptt_duration}s). Processing...")
+                self.notification_manager.show_message(f"Processing... [{duration:.2f}s]")
+                threading.Thread(target=self._process_audio, args=(frames,), daemon=True).start()
             else:
-                 # Handle insufficient duration or no frames
-                 if not frames:
-                     logger.warning("⚠️ No audio frames captured. Skipping.")
-                 else:
-                     logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
-                 # --- Use Notification Manager to hide any interim message --- 
-                 self.notification_manager.hide_overlay()
-                 # ---------------------------------------------------------
+                if not frames:
+                    logger.warning("⚠️ No audio frames captured. Skipping.")
+                else:
+                    logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
+        self.notification_manager.hide_overlay()
 
     def _handle_ptt_cancel(self):
         """Callback executed by HotkeyManager when Esc is pressed during PTT."""
@@ -265,7 +251,7 @@ class Orchestrator:
              self.hotkey_manager.suppress(suppress)
          else:
              logger.warning("Attempted to set hotkey suppression, but manager not ready.")
-             
+
     def _process_audio(self, frames):
         """Delegates audio processing to AudioProcessor and handles results."""
         logger.debug("Orchestrator delegating processing to AudioProcessor...")

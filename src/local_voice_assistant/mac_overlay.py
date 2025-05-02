@@ -28,14 +28,19 @@ class MacNotification:
             
         logger.debug("MacNotification initialized.")
     
-    def show_message(self, text, group_id='voice-assistant-status'):
+    def show_message(self, text, group_id='voice-assistant-status', duration=None):
         """Displays a macOS notification with the given text.
         
         Args:
             text: The message content.
             group_id: The group ID for terminal-notifier. Notifications with the same
                       group ID replace each other. Set to None to show independently.
+            duration: (Ignored) Added for interface compatibility.
         """
+        # Log if duration is provided but ignored
+        if duration is not None:
+             logger.debug(f"Duration ({duration}s) provided but ignored by MacNotification.")
+             
         self._last_message = text
         logger.debug(f"Showing notification: '{text}' (Group: {group_id})")
         
@@ -90,9 +95,17 @@ class MacNotification:
         except Exception as e:
             logger.error(f"Failed to show notification: {e}")
     
-    def hide_overlay(self):
-        """macOS notifications auto-hide, so this is just a placeholder."""
-        logger.debug("Hide called (notifications auto-hide)")
+    def hide_overlay(self, group_id=None):
+        """macOS notifications auto-hide, so this is just a placeholder.
+        
+        Args:
+             group_id: (Ignored) Added for interface compatibility.
+        """
+        # Log if group_id is provided but ignored
+        if group_id is not None:
+             logger.debug(f"Hide called with group_id ('{group_id}') but ignored by MacNotification.")
+        else:
+             logger.debug("Hide called (notifications auto-hide)")
         pass
 
 # Global instance for singleton pattern

@@ -70,12 +70,13 @@ class NotificationManager:
                  try:
                      logger.warning("Overlay show_message might not support duration/group_id. Falling back.")
                      self.overlay.show_message(message)
-                 except Exception as e:
-                     logger.error(f"❌ Error showing overlay message (fallback attempt): {e}")
+                 except Exception as e_fallback:
+                     logger.error(f"❌ Error showing overlay message (fallback attempt): {e_fallback}")
             except Exception as e:
+                # Handle other errors during the primary show_message call
                 logger.error(f"❌ Error showing overlay message: {e}")
         else:
-            logger.debug(f"Overlay not available. Skipping message: '{message}'")
+            logger.warning("Overlay not available, cannot show message.")
 
     def hide_overlay(self, group_id="assistant_message"):
         """Hides the overlay message group if available."""
@@ -89,8 +90,8 @@ class NotificationManager:
                  try:
                      logger.warning("Overlay hide_overlay might not support group_id. Falling back.")
                      self.overlay.hide_overlay()
-                 except Exception as e:
-                     logger.error(f"❌ Error hiding overlay (fallback attempt): {e}")
+                 except Exception as e_fallback:
+                     logger.error(f"❌ Error hiding overlay (fallback attempt): {e_fallback}")
             except Exception as e:
                 logger.error(f"❌ Error hiding overlay: {e}")
         else:
