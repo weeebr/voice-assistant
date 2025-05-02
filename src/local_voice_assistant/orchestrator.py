@@ -69,27 +69,28 @@ except Exception as e:
 
 class Orchestrator:
     """
-    Coordinates hotkey (Cmd+Esc cancel), audio capture, STT, and pasting.
+    Coordinates hotkey (Option + - for PTT, Cmd+Esc cancel - TODO: Update cancel key?), 
+    audio capture, STT, and pasting.
     """
     # Minimum duration for a PTT press to be processed (in seconds)
-    MIN_PTT_DURATION = 1.2  # Reduced from 1.2s to 0.2s for easier testing
+    MIN_PTT_DURATION = 1.2  
     
     def __init__(self, config):
         logger.debug("Orchestrator initializing...")
         self.hotkey_suppressed = False # Used during paste simulation
         self.config = config
         self.ptt_start_time = None # Track start time of PTT press
-        self.cmd_held = False      # Track if Cmd key is currently pressed
-        self.cancel_requested = False # Track if Esc was pressed during Cmd hold
+        self.option_held = False
+        self.ptt_active = False # True when Option + - are both held for PTT
+        self.cancel_requested = False # Track if Esc was pressed during PTT
         self.recording_thread = None # Hold reference to the recording thread
         self.stop_recording_event = threading.Event() # Signal to stop recording
         self.listener_thread = None # Thread for the pynput listener
-        self._last_paste_successful = False # Add flag to track successful paste
+        self._last_paste_successful = False 
         self.translation_mode = None 
-        # NEW state for next transcription only
         self.next_stt_language_hint = None 
-        self.system_playback_paused = False # NEW: Track if we paused system audio
-        self.pause_timer_triggered = False # NEW: Track if duration-based pause happened
+        self.system_playback_paused = False 
+        self.pause_timer_triggered = False
         
         # Audio components
         self.audio = AudioCapture(
@@ -150,106 +151,150 @@ class Orchestrator:
 
     def _on_press(self, key):
         """Callback for key press events from pynput Listener."""
+        # --- Added Debugging --- 
+        logger.debug(f"--> _on_press ENTRY. Key={key}, Type={type(key)}, Char={getattr(key, 'char', None)}")
+        logger.debug(f"    State BEFORE press: ptt_active={self.ptt_active}, option_held={self.option_held}, suppressed={self.hotkey_suppressed}")
+        # -----------------------
+
         if self.hotkey_suppressed:
-            # logger.debug("🔒 Key press suppressed (during paste).") # Can be noisy
+            logger.debug("    Exiting _on_press early (suppressed=True)")
             return
-            
-        # logger.debug(f"Key pressed: {key}") # Very noisy debug
+        
         try:
-            if key == Key.cmd:
-                if not self.cmd_held:
-                    logger.debug("Cmd pressed, starting recording...")
-                    self.cmd_held = True
-                    self.cancel_requested = False
+            # Option Key Press Tracking
+            if key in (Key.alt, Key.alt_l, Key.alt_r):
+                logger.debug("    Detected Option press.")
+                self.option_held = True
+                pass 
+
+            # PTT Start: Option + Minus
+            elif self.option_held and hasattr(key, 'char') and key.char == '–':
+                 logger.debug("    Detected '–' press while Option held.")
+                 ptt_started_this_press = False # Flag to track if we started PTT now
+                 if not self.ptt_active: 
+                    logger.info("🎤 PTT START (Option + – pressed)")
+                    self.ptt_active = True
+                    ptt_started_this_press = True # Mark that we started it
+                    self.cancel_requested = False 
                     self.stop_recording_event.clear() 
-                    self.ptt_start_time = time.monotonic()
-                    self.pause_timer_triggered = False # Reset the pause trigger flag
-                    
-                    # Start recording loop
+                    self.ptt_start_time = time.monotonic() 
+                    self.pause_timer_triggered = False 
                     self.recording_thread = threading.Thread(target=self._hotkey_recording_loop, args=(self.stop_recording_event,), daemon=True)
                     self.recording_thread.start()
-                    logger.info("🎤 Recording START")
+                 else:
+                    logger.debug("    PTT already active, ignoring '–' press for PTT start.")
                     
-                    # --- REMOVED immediate pause ---
-                    # self._pause_system_playback() 
-                    # ---------------------------
-                    
-                else:
-                    # logger.debug("Cmd already held, ignoring press.") # Can be noisy
-                    pass 
+                 # --- Simulate Backspace AFTER potential PTT start --- 
+                 logger.debug("    Simulating Backspace to remove '–' character.")
+                 self._simulate_backspace() # Call the backspace simulation
+                 # -----------------------------------------------------
+                 
+                 # We now allow the original press event to propagate (implicitly returns True/None)
+                 # This avoids the listener freeze associated with returning False.
+                 # DO NOT return False here.
+                 
+            # PTT Cancel: Esc Key Press
             elif key == Key.esc:
-                if self.cmd_held:
-                    logger.info("🛑 Esc pressed while Cmd held - Requesting cancellation.")
+                logger.debug("    Detected Esc press.")
+                if self.ptt_active:
+                    logger.info("🛑 Esc pressed while PTT active - Requesting cancellation.")
                     self.cancel_requested = True
-                    self.stop_recording_event.set() # Signal recording loop to stop early
-                    # Show cancellation notification
+                    self.stop_recording_event.set() 
+                    self.ptt_active = False 
+                    self.option_held = False 
                     if self.overlay:
-                        logger.debug("ATTEMPT: Showing 'Recording Canceled' notification")
-                        # Use None group ID to ensure it shows independently if needed
                         self.overlay.show_message("Recording stopped", group_id=None) 
+                else:
+                    logger.debug("    Esc press ignored (PTT not active).")
+            else:
+                logger.debug(f"    Detected press of unhandled key: {key}")
+                        
         except Exception as e:
             logger.exception(f"❌ Error in _on_press: {e}")
+        finally:
+            logger.debug(f"<--- _on_press EXIT. State AFTER press: ptt_active={self.ptt_active}, option_held={self.option_held}")
+        
+        return True # Allow other keys to pass through if not handled
 
     def _on_release(self, key):
         """Callback for key release events from pynput Listener."""
+        # --- Added Debugging --- 
+        logger.debug(f"--> _on_release ENTRY. Key={key}, Type={type(key)}, Char={getattr(key, 'char', None)}")
+        logger.debug(f"    State BEFORE release: ptt_active={self.ptt_active}, option_held={self.option_held}, suppressed={self.hotkey_suppressed}")
+        # ------------------------
+        
         if self.hotkey_suppressed:
-             # logger.debug("🔓 Key release suppressed (during paste).") # Can be noisy
+             logger.debug("    Exiting _on_release early (suppressed=True)")
              return
              
-        # logger.debug(f"Key released: {key}") # Very noisy debug
         try:
-            if key == Key.cmd:
-                if self.cmd_held: # Only process release if we thought it was held
-                    logger.debug("Cmd released, signaling recording loop to stop...")
-                    self.cmd_held = False
-                    self.stop_recording_event.set() # Signal recording loop to stop
-                    logger.info("🖐️ Recording STOP signaled.")
+            was_active = self.ptt_active # Check *before* changing state
+            trigger_stop = False
 
-                    # Wait for the recording thread to finish
-                    if self.recording_thread is not None:
-                        logger.debug("Waiting for recording thread to join...")
-                        self.recording_thread.join(timeout=2.0) # Add a timeout
-                        if self.recording_thread.is_alive():
-                            logger.warning("⚠️ Recording thread did not join in time.")
-                        else:
-                            logger.debug("Recording thread joined.")
-                        frames, duration = getattr(self.recording_thread, 'result', ([], 0))
-                        self.recording_thread = None # Clear the thread reference
+            # Option Key Release (PRIMARY PTT STOP)
+            if key in (Key.alt, Key.alt_l, Key.alt_r):
+                logger.debug(f"    Detected Option release.")
+                if self.option_held: 
+                    logger.debug("    Option was held, processing release.")
+                    self.option_held = False
+                    if was_active:
+                         logger.info("🖐️ PTT STOP signaled (Option released).")
+                         trigger_stop = True
+                         self.ptt_active = False 
                     else:
-                        logger.warning("⚠️ Cmd released, but no recording thread found.")
-                        frames, duration = [], 0
-
-                    # --- Resume system playback (if we paused it) ---
-                    self._resume_system_playback()
-                    # -----------------------------------------------
-
-                    # Check if cancellation was requested *before* processing
-                    if self.cancel_requested:
-                        logger.info("🚫 Processing canceled via Esc key.")
-                        # Reset flag for next time
-                        self.cancel_requested = False 
-                    else:
-                        # Proceed with normal duration check and processing
-                        logger.info(f"⏱️ PTT duration: {duration:.2f} seconds.")
-                        if frames and duration >= self.MIN_PTT_DURATION:
-                             logger.info(f"✅ Duration OK ({duration:.2f}s >= {self.MIN_PTT_DURATION}s). Processing...")
-                             if self.overlay:
-                                 logger.debug("ATTEMPT: Showing 'Processing your request...' notification (独立)")
-                                 self.overlay.show_message("Processing your request...", group_id=None)
-                             logger.debug("Starting _process_audio thread...")
-                             threading.Thread(target=self._process_audio, args=(frames,), daemon=True).start()
-                        else:
-                             if not frames:
-                                 logger.warning("⚠️ No audio frames captured. Skipping.")
-                             else:
-                                 # Log confirmation that duration check failed and no processing/notification is happening here
-                                 logger.debug("--> Duration check FAILED. No processing/notification triggered from _on_release.")
-                                 logger.info(f"❌ Duration too short ({duration:.2f}s < {self.MIN_PTT_DURATION}s). Skipping.")
+                         logger.debug("    Option released, but PTT was not active.")
                 else:
-                     # logger.debug("Cmd released, but wasn't marked as held.") # Can be noisy
-                     pass
+                     logger.debug("    Option release ignored (was not marked as held).")
+                
+            # Minus Key Release (IGNORED for PTT stop)
+            elif hasattr(key, 'char') and key.char == '–':
+                 logger.debug(f"    Detected '–' release (ignored for PTT stop).")
+                 # No action needed here
+            else:
+                 logger.debug(f"    Detected release of unhandled key: {key}")
+            
+            # Trigger Stop Sequence (if Option release triggered it)
+            logger.debug(f"    State BEFORE stop check: trigger_stop={trigger_stop}, ptt_active={self.ptt_active}") # Log state before check
+            if trigger_stop:
+                logger.debug("    >>> TRIGGERING PTT STOP SEQUENCE <<< ")
+                self.stop_recording_event.set() 
+                if self.recording_thread is not None:
+                    logger.debug("    Waiting for recording thread to join...")
+                    self.recording_thread.join(timeout=2.0) 
+                    if self.recording_thread.is_alive():
+                        logger.warning("    ⚠️ Recording thread did not join in time.")
+                    else:
+                        logger.debug("    Recording thread joined.")
+                    frames, duration = getattr(self.recording_thread, 'result', ([], 0))
+                    self.recording_thread = None 
+                else:
+                    logger.warning("    ⚠️ PTT stop signaled, but no recording thread found.")
+                    frames, duration = [], 0
+                self._resume_system_playback()
+                if self.cancel_requested:
+                    logger.info("    🚫 Processing canceled via Esc key.")
+                    self.cancel_requested = False 
+                else:
+                    logger.info(f"    ⏱️ PTT duration: {duration:.2f} seconds.")
+                    if frames and duration >= self.MIN_PTT_DURATION:
+                        logger.info(f"    ✅ Duration OK ({duration:.2f}s >= {self.MIN_PTT_DURATION}s). Processing...")
+                        if self.overlay:
+                            self.overlay.show_message("Processing your request...", group_id=None)
+                        threading.Thread(target=self._process_audio, args=(frames,), daemon=True).start()
+                    else:
+                        if not frames:
+                            logger.warning("    ⚠️ No audio frames captured. Skipping.")
+                        else:
+                            logger.debug("    --> Duration check FAILED. No processing/notification triggered from PTT release.")
+                            logger.info(f"    ❌ Duration too short ({duration:.2f}s < {self.MIN_PTT_DURATION}s). Skipping.")
+            else:
+                 logger.debug("    Stop sequence not triggered.")
+                     
         except Exception as e:
             logger.exception(f"❌ Error in _on_release: {e}")
+        finally:
+            # Added Final State Debugging
+            logger.debug(f"<--- _on_release EXIT. State AFTER release: ptt_active={self.ptt_active}, option_held={self.option_held}")
 
     def _hotkey_recording_loop(self, stop_event):
         """Captures audio frames until stop_event is set. Stores result on thread object."""
@@ -898,3 +943,28 @@ class Orchestrator:
         finally:
             # Always reset the main flag after attempting resume
             self.system_playback_paused = False
+
+    # --- Method for Backspace Simulation --- 
+    def _simulate_backspace(self):
+        """Simulates a Backspace key press using pynput."""
+        logger.debug("Backspace simulation: Attempting...")
+        try:
+            kb = Controller()
+            self.hotkey_suppressed = True
+            logger.debug("🔒 Suppressing hotkey listener for Backspace simulation.")
+            try:
+                kb.press(Key.backspace)
+                kb.release(Key.backspace)
+                logger.debug("Backspace simulation: Success.")
+            except Exception as e:
+                 logger.error(f"⌨️❌ Error during Backspace simulation: {e}")
+            finally:
+                 # Ensure suppression is always released after a very short delay
+                 time.sleep(0.02) # Shorter delay might be okay for backspace
+                 self.hotkey_suppressed = False
+                 logger.debug("🔓 Re-enabled hotkey listener after Backspace simulation.")
+        except NameError:
+             logger.error("⌨️❌ pynput Controller unavailable. Cannot simulate Backspace.")
+        except Exception as e:
+            logger.error(f"⌨️💥 Failed to init pynput Controller or simulate Backspace: {e}")
+            
