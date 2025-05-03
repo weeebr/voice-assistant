@@ -10,9 +10,6 @@ import time
 # from anthropic import APIError # Might be needed for provider-specific errors
 # ----------------------------------------------------------------------------------
 
-# Import the signal word configuration
-# from .signal_config import SIGNAL_WORD_CONFIG
-
 # Get a logger instance for this module
 logger = logging.getLogger(__name__)
 
@@ -312,18 +309,8 @@ class AudioProcessor:
 
                 # --- No Signal Word Found (Default Behavior) ---
                 else: 
-                    # Default is no action, just passthrough the original text.
-                    # REMOVED: Implicit translation based on mode.
-                    # effective_text_for_processing = final_full_sanitized_text
-                    # if new_translation_mode == "swiss_german":
-                    #     logger.info(f"🇨🇭 Mode=SG. Attempting translation for default text via _translate_to_swiss_german: '{effective_text_for_processing}'")
-                    #     translated_text = self._translate_to_swiss_german(effective_text_for_processing)
-                    #     if translated_text:
-                    #          logger.info(f"🇨🇭 Default translation successful: '{translated_text}'")
-                    #          effective_text_for_processing = translated_text
-                    #     else:
-                    #          logger.warning("⚠️ Default translation failed/skipped. Using original text.")
-                    text_to_paste = final_full_sanitized_text # Directly assign the original text
+                    logger.info("🚫 No signal phrase detected. Passing through.")
+                    text_to_paste = final_full_sanitized_text # Set the text for passthrough
 
             # --- Safety Check (If text is unexpectedly None) ---
             elif text_to_paste is None and final_full_sanitized_text: 
@@ -338,22 +325,22 @@ class AudioProcessor:
                 'new_stt_hint': current_stt_hint,
                 'paste_successful': False
             }
-        finally:
-            # --- Final Paste --- 
-            if text_to_paste:
-                logger.info(f"✅ Proceeding to copy and paste via ClipboardManager: '{text_to_paste[:100]}...'")
-                paste_successful = self.clipboard_manager.copy_and_paste(text_to_paste) 
-            else:
-                logger.info("🤷 No valid text to paste (result was None or empty).")
-                paste_successful = False
 
-        # --- Return results --- 
-        logger.info("🏁 Audio processing pipeline finished.")
+        # --- Final Cleanup and Return --- 
+        # Determine final paste_successful flag based ONLY on whether text_to_paste is set
+        if text_to_paste is None:
+             logger.info("🤷 No text determined for pasting.")
+             paste_successful = False # Final decision: Don't paste
+        else:
+             logger.info(f"➡️ Preparing return value: text_to_paste='{text_to_paste[:100]}...', paste_successful=True")
+             paste_successful = True # Final decision: Paste needed
+
+        logger.info(f"🏁 Audio processing finished. Returning: paste_successful={paste_successful}, mode='{new_translation_mode}', hint='{new_stt_hint}'") # Reuse log from before
         return {
             'text_to_paste': text_to_paste,
             'new_translation_mode': new_translation_mode,
             'new_stt_hint': new_stt_hint,
-            'paste_successful': paste_successful
+            'paste_successful': paste_successful # Return the correctly determined flag
         }
         
     def _sanitize_text(self, text):
@@ -361,57 +348,8 @@ class AudioProcessor:
         # Using simple replace, consider more robust sanitization if needed.
         return text.replace('ß', 'ss').replace('"', '"').replace("'", "'")
 
-    # --- NEW Method to Get Signal Phrases ---
-    def get_configured_signal_phrases(self):
-        """
-        Retrieves the list of 'signal_phrase' values from the loaded configuration.
-
-        Returns:
-            list[str]: A list of signal phrases configured in signal_config.json.
-                       Returns an empty list if no config was loaded or no phrases are defined.
-        """
-        phrases = []
-        if not self.signal_configs:
-            logger.warning("⚠️ Signal config not loaded or empty, cannot retrieve phrases.")
-            return []
-            
-        # Iterate directly over the list of config dicts
-        for config_data in self.signal_configs:
-            signal_phrase_config = config_data.get('signal_phrase')
-            
-            # Check if this config should be excluded based on action
-            should_exclude = any(
-                isinstance(action, str) and (
-                    # or Check if action contains 'chairman' anywhere in the string
-                    action.startswith('stt_language:') or 'chairman' in action
-                )
-                for action in (config_data.get('action') or [])
-            )
-            
-            if should_exclude:
-                 continue # Skip signals that only change state
-
-            # Process phrases if not excluded
-            if isinstance(signal_phrase_config, list):
-                # Add all non-empty phrases from the list, excluding specific ones
-                for phrase in signal_phrase_config:
-                    if phrase and isinstance(phrase, str):
-                        # --- Add exclusion for specific phrases --- 
-                        if phrase.lower() not in ["chairman", "swiss chairman"]:
-                            phrases.append(phrase)
-                        # -----------------------------------------
-                    elif phrase:
-                         logger.warning(f"Non-string item found in signal_phrase list: {phrase} in {config_data.get('name', 'Unnamed')}")
-            elif isinstance(signal_phrase_config, str) and signal_phrase_config:
-                # Add the single non-empty phrase string, excluding specific ones
-                # --- Add exclusion for specific phrases --- 
-                if signal_phrase_config.lower() not in ["chairman", "swiss chairman"]:
-                    phrases.append(signal_phrase_config)
-                # -----------------------------------------
-            elif signal_phrase_config: # Log if it's neither list nor string but not None/empty
-                 logger.warning(f"Signal config '{config_data.get('name', 'Unnamed')}' has invalid type for 'signal_phrase': {type(signal_phrase_config)}")
-            # else: Missing or empty signal_phrase, already warned in process_audio potentially
-                
-        logger.debug(f"Retrieved {len(phrases)} configured signal phrases to display.")
-        return phrases
+    # --- Method removed, moved to config.py ---
+    # def get_configured_signal_phrases(self):
+    #     ...
+    # --- End removed method ---
  

@@ -37,17 +37,23 @@ class AudioRecorder:
 
     def start_recording(self):
         """Starts the recording process in a separate thread."""
-        # Placeholder - Logic will be moved from Orchestrator
-        logger.info("🎤 Recording START signaled.")
-        self.stop_event.clear()
+        if self.recording_thread and self.recording_thread.is_alive():
+            logger.warning("AudioRecorder: Recording already in progress.")
+            return self.recording_thread # Return existing thread
+            
+        # --- REMOVE Playback Pause --- 
+        # Playback control is now handled conditionally by Orchestrator
+        # logger.debug("AudioRecorder: Pausing system playback...")
+        # self.playback_manager.pause() 
+        # ---------------------------
+        
         self.frames = []
         self.start_time = time.monotonic()
-        self.pause_timer_triggered = False
-        self.duration = 0
-
+        self.stop_event.clear()
         self.recording_thread = threading.Thread(target=self._recording_loop, daemon=True)
         self.recording_thread.start()
-        return self.recording_thread # Return thread maybe useful?
+        logger.info("AudioRecorder: Recording thread started.")
+        return self.recording_thread
 
     def stop_recording(self):
         """Signals the recording thread to stop and returns the recorded data."""

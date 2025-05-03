@@ -26,11 +26,21 @@ class HotkeyManager:
         self._listener = None
         self._listener_thread = None
 
+        # --- State for Modifier Keys ---
+        self._ctrl_held = False 
+        # -----------------------------
+
     def _on_press(self, key):
         """Internal callback for key press events."""
         if self._suppressed:
             # logger.debug("HotkeyManager: Key press suppressed.")
             return True # Allow event propagation if suppressed
+
+        # --- Update Modifier State --- 
+        if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
+            logger.debug("HotkeyManager: Ctrl key pressed.")
+            self._ctrl_held = True
+        # ---------------------------
 
         try:
             # PTT Key Press
@@ -38,7 +48,9 @@ class HotkeyManager:
                 if not self.ptt_key_held:
                     logger.debug("HotkeyManager: PTT key pressed.")
                     self.ptt_key_held = True
-                    self.on_ptt_start() # Call the callback
+                    # --- Pass Ctrl state to callback ---
+                    self.on_ptt_start(ctrl_pressed=self._ctrl_held)
+                    # -----------------------------------
                 # else: PTT key already held, ignore repeat press events
 
             # Cancel Key Press
@@ -58,13 +70,21 @@ class HotkeyManager:
             # logger.debug("HotkeyManager: Key release suppressed.")
             return True
 
+        # --- Update Modifier State --- 
+        if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
+            logger.debug("HotkeyManager: Ctrl key released.")
+            self._ctrl_held = False
+        # ---------------------------
+        
         try:
             # PTT Key Release
             if key in self.ptt_trigger_keys:
                 if self.ptt_key_held:
                     logger.debug("HotkeyManager: PTT key released.")
                     self.ptt_key_held = False
-                    self.on_ptt_stop() # Call the callback
+                    # --- Pass Ctrl state to callback ---
+                    self.on_ptt_stop(ctrl_pressed=self._ctrl_held)
+                    # -----------------------------------
                 # else: PTT key released but wasn't marked held, ignore
 
         except Exception as e:

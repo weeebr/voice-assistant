@@ -26,6 +26,11 @@ from .audio_recorder import AudioRecorder # <-- Add new import
 from .audio_processor import AudioProcessor # <-- Add new import
 from .notification_manager import NotificationManager # <-- Add import
 
+# --- Import from config.py --- 
+import config as app_config # Use alias to avoid naming conflicts
+from config import get_configured_signal_phrases # Import the specific function
+# -----------------------------
+
 logger = logging.getLogger(__name__)
 
 # --- Transcription Logging Setup ---
@@ -49,8 +54,6 @@ except Exception as e:
 
 # --- End Transcription Logging Setup ---
 
-# --- Signal Word Mapping (REMOVED - Now in signal_config.py) ---
-
 class Orchestrator:
     # Define valid PTT keys and their pynput mappings
     VALID_PTT_KEYS = {
@@ -73,6 +76,7 @@ class Orchestrator:
         self._last_paste_successful = False
         self.translation_mode = None
         self.next_stt_language_hint = None
+        self._playback_was_paused = False # Flag to track if we paused playback
         
         # --- Initialize Managers --- 
         self.playback_manager = SystemPlaybackManager()
@@ -162,12 +166,16 @@ class Orchestrator:
         try:
             self.hotkey_manager.start() # Start the manager's listener
             logger.info("👂 Hotkey listener started via manager.")
+            # --- Show Startup Toast --- 
+            self.notification_manager.show_message("Assistant Ready!", duration=2.0, group_id="startup_toast")
+            logger.info("🍞 Startup notification displayed.")
+            # --------------------------
         except Exception as e:
              logger.exception(f"❌ Failed to start hotkey listener via manager: {e}")
              raise # Re-raise critical error
 
         # --- Use Notification Manager --- 
-        logger.debug("Using NotificationManager to show 'Start recording...'")
+        # logger.debug("Using NotificationManager to show 'Start recording...'") # Removed redundant log
         # ------------------------------
 
     def stop(self):
@@ -177,21 +185,31 @@ class Orchestrator:
              self.hotkey_manager.stop()
 
     # --- Hotkey Callbacks (Called by HotkeyManager) --- 
-    def _handle_ptt_start(self):
+    def _handle_ptt_start(self, ctrl_pressed: bool):
         """Callback executed by HotkeyManager when PTT key is pressed."""
-        logger.debug("Orchestrator: _handle_ptt_start called.")
+        logger.debug(f"Orchestrator: _handle_ptt_start called (Ctrl: {ctrl_pressed}).")
+        self._playback_was_paused = False # Reset flag at start
         # Check if a recording thread from AudioRecorder is already active
         if self.active_recording_thread and self.active_recording_thread.is_alive():
              logger.warning("PTT Start requested, but recording thread already active.")
              return
              
         self.cancel_requested = False
+        
+        # --- Conditionally Pause Playback --- 
+        if ctrl_pressed:
+            logger.info("Ctrl key detected with PTT start, pausing playback...")
+            self.playback_manager.pause()
+            self._playback_was_paused = True # Remember that we paused it
+        # ------------------------------------
+        
         # Start recording and keep the thread reference
         self.active_recording_thread = self.audio_recorder.start_recording()
         
-        # --- Show Signal Phrases Notification (Using new AudioProcessor method) --- 
+        # --- Show Signal Phrases Notification (Using function from config.py) --- 
         try:
-            signal_phrases = self.audio_processor.get_configured_signal_phrases()
+            # Call the imported function, passing the COMMANDS list from the imported config
+            signal_phrases = get_configured_signal_phrases(app_config.COMMANDS)
             
             if signal_phrases:
                 # Create a concise string of phrases
@@ -200,50 +218,96 @@ class Orchestrator:
                 self.notification_manager.show_message("Recording... 🇨🇭 🇩🇪 🇬🇧\n" + display_string)
         except Exception as e:
              # Log error and show default message if fetching/displaying fails
-             logger.error(f"❌ Failed to get or display signal phrases: {e}")
+             logger.error(f"❌ Failed to get or display signal phrases from config.py: {e}")
         # --------------------------------------------------------------------
 
-    def _handle_ptt_stop(self):
+    def _handle_ptt_stop(self, ctrl_pressed: bool):
         """Callback executed by HotkeyManager when PTT key is released."""
-        logger.debug("Orchestrator: _handle_ptt_stop called.")
+        logger.debug(f"Orchestrator: _handle_ptt_stop called (Ctrl: {ctrl_pressed}).")
+
+        # --- Stop Recording & Get Results ---
         frames, duration = self.audio_recorder.stop_recording()
         self.active_recording_thread = None # Clear the tracked thread
-        self.playback_manager.resume() # Resume playback after recording stops
-
-        if self.cancel_requested:
-            logger.info("🚫 Processing canceled via Esc key.")
-            self.cancel_requested = False 
-            self.notification_manager.show_message("Cancelled") 
+        
+        # --- Conditionally Resume Playback --- 
+        if self._playback_was_paused:
+            logger.info("Playback was paused for this recording, resuming...")
+            self.playback_manager.resume() 
         else:
-            logger.info(f"⏱️ PTT duration: {duration:.2f} seconds.")
-            if frames and duration >= self.min_ptt_duration:
-                logger.info(f"✅ Duration OK ({duration:.2f}s >= {self.min_ptt_duration}s). Processing...")
-                self.notification_manager.show_message(f"Processing... [{duration:.2f}s]")
-                threading.Thread(target=self._process_audio, args=(frames,), daemon=True).start()
+             logger.debug("Playback was not paused for this recording, skipping resume.")
+        self._playback_was_paused = False # Reset flag after handling stop
+        # -------------------------------------
+
+        # --- Handle Cancellation ---
+        if self.cancel_requested:
+            logger.info("🚫 Processing cancelled (Esc key pressed).")
+            self.cancel_requested = False # Reset flag
+            self.notification_manager.show_message("Cancelled", duration=1.0)
+            return # Stop processing
+
+        # --- Check Duration and Frames ---
+        if not frames or duration < self.min_ptt_duration:
+            if not frames:
+                logger.warning("⚠️ No audio frames captured after stop. Skipping.")
             else:
-                if not frames:
-                    logger.warning("⚠️ No audio frames captured. Skipping.")
-                else:
-                        logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
-        self.notification_manager.hide_overlay()
+                logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
+            self.notification_manager.hide_overlay() # <-- FIX 1: Use hide_overlay
+            return # Stop processing
+
+        # --- Process Audio Synchronously ---
+        logger.info(f"✅ Duration OK ({duration:.2f}s). Processing audio synchronously...")
+        self.notification_manager.show_message(f"Processing... [{duration:.2f}s]") # Show processing message
+
+        try:
+            processing_result = self.audio_processor.process_audio(
+                frames,
+                self.translation_mode,
+                self.next_stt_language_hint
+            )
+            logger.debug(f"AudioProcessor returned: {processing_result}")
+
+            # --- Update Orchestrator State ---
+            self.translation_mode = processing_result.get('new_translation_mode', self.translation_mode)
+            self.next_stt_language_hint = processing_result.get('new_stt_hint', None)
+            logger.info(f"Orchestrator state updated: Mode='{self.translation_mode}', Next Hint='{self.next_stt_language_hint}'")
+
+            # --- Paste to Clipboard (Single Point) ---
+            text_to_paste = processing_result.get('text_to_paste')
+            paste_successful = processing_result.get('paste_successful', False)
+
+            if paste_successful and text_to_paste is not None:
+                logger.info(f"Attempting paste: '{text_to_paste[:100]}...'")
+                self.clipboard_manager.copy_and_paste(text_to_paste) # *** THE ONLY PASTE CALL ***
+                self.notification_manager.show_message(f"Pasted: {text_to_paste[:50]}...", duration=2.0)
+                self._last_paste_successful = True
+            else:
+                logger.info("No text to paste or paste marked unsuccessful.")
+                self.notification_manager.hide_overlay() # <-- FIX 2: Use hide_overlay
+                self._last_paste_successful = False
+
+        except Exception as e:
+            logger.exception("💥 Error during synchronous audio processing:")
+            self.notification_manager.show_message("Error processing audio.", duration=3.0)
+            self._last_paste_successful = False
+        # finally block removed as active_recording_thread is cleared earlier
 
     def _handle_ptt_cancel(self):
         """Callback executed by HotkeyManager when Esc is pressed during PTT."""
         logger.info(f"Orchestrator: _handle_ptt_cancel called.")
-        self.cancel_requested = True
-        # --- Use AudioRecorder to stop the recording loop --- 
-        if self.active_recording_thread and self.active_recording_thread.is_alive():
+        self.cancel_requested = True # Set flag for _handle_ptt_stop to check
+        if self.audio_recorder and self.audio_recorder.is_recording():
             logger.debug("Signaling AudioRecorder to stop due to cancel request.")
-            self.audio_recorder.stop_recording() 
-            self.active_recording_thread = None
-        # -------------------------------------------------
-        # --- Resume playback if it was paused --- 
-        self.playback_manager.resume()
-        # ----------------------------------------
-        # --- Use Notification Manager --- 
-        self.notification_manager.show_message("Recording stopped")
-        # ------------------------------
-            
+            self.audio_recorder.stop_recording()
+        
+        # --- Conditionally Resume on Cancel --- 
+        if self._playback_was_paused: # If playback was paused by the corresponding start
+            logger.info("Playback was paused, resuming due to cancellation...")
+            self.playback_manager.resume()
+        self._playback_was_paused = False # Reset flag
+        # --------------------------------------
+        
+        # Notification handled by _handle_ptt_stop when it sees cancel_requested flag
+
     # --- Suppression Mediation --- 
     def suppress_hotkeys(self, suppress: bool):
          """Called by other managers (e.g., Clipboard) to suppress hotkeys."""
@@ -251,37 +315,6 @@ class Orchestrator:
              self.hotkey_manager.suppress(suppress)
          else:
              logger.warning("Attempted to set hotkey suppression, but manager not ready.")
-
-    def _process_audio(self, frames):
-        """Delegates audio processing to AudioProcessor and handles results."""
-        logger.debug("Orchestrator delegating processing to AudioProcessor...")
-        
-        # Call the processor, passing current state
-        results = self.audio_processor.process_audio(
-            frames,
-            self.translation_mode, 
-            self.next_stt_language_hint
-        )
-        
-        # Update Orchestrator state based on results
-        self.translation_mode = results['new_translation_mode']
-        self.next_stt_language_hint = results['new_stt_hint']
-        self._last_paste_successful = results['paste_successful']
-        text_pasted = results['text_to_paste'] # For overlay logic
-        
-        logger.debug(f"Processing results received: Mode='{self.translation_mode}', NextHint='{self.next_stt_language_hint}', Pasted='{self._last_paste_successful}'")
-
-        # --- Handle Final Notification (Using NotificationManager) --- 
-        if self._last_paste_successful:
-            logger.debug("Using NM to show 'Text pasted!'")
-            self.notification_manager.show_message("Text pasted!")
-        elif text_pasted is None and self.translation_mode in ["swiss_german", "german", "english"]: 
-            logger.debug("Mode switch detected, overlay message likely already shown by processor/handler.")
-            # Assume processor/handler showed confirmation via notification_manager
-        else: # Hide if paste was skipped/failed and not a mode switch
-            logger.debug("Paste unsuccessful or skipped. Using NM to hide overlay.")
-            self.notification_manager.hide_overlay()
-        # -------------------------------------------------------------
 
     # --- Wrapper for Clipboard Content --- 
     def _get_clipboard_content(self):
