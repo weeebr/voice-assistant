@@ -1,17 +1,6 @@
-# Local Voice Assistant
+# Local AI Voice Assistant
 
-This project implements a local, privacy-preserving voice assistant following a multi-phase roadmap:
-
-- **Phase 1**: Foundations & Environment Setup
-- **Phase 2**: Audio I/O & Low-Latency Capture
-- **Phase 3**: Speech-to-Text with Faster Whisper
-- **Phase 4**: Wake-Word Detection
-- **Phase 5**: Hotkey-Based Push-to-Talk
-- **Phase 6**: Post-Processing & Grammar Correction
-- **Phase 7**: (Optional) Local LLM for NLU/NLG
-- **Phase 8**: Orchestration & Architecture
-- **Phase 9**: Testing & Benchmarking
-- **Phase 10**: Deployment & Packaging
+This project implements a local, no-cost, privacy-preserving voice assistant with the focus on being responsive, efficient and quick both when managing and customizing commands (→ config.py) and during runtime.
 
 ## Features ✨
 
@@ -33,62 +22,56 @@ Use templates to transform your input in various ways:
 
 **Examples:**
 
-- `Translate the following English text into Central Swiss German (Schweizerdeutsch). Provide only the translation:
+- `Translate into Central Swiss German (Schweizerdeutsch) and provide only the translation. Here's the text: {text}`
 
-English Text: {text}`
+- `Summarize the following: {clipboard}`
 
-- `Summarize the following text in bullet points using mostly keywords or very short phrases: {clipboard}`
-- `{clipboard}` (Used by NER to process clipboard content)
+## Quick Start 🚀
 
-## Quick Setup
+1.  **Clone the repository** (if you haven't already):
+    ```bash
+    git clone <repository-url>
+    cd <repository-directory>
+    ```
+2.  **Run the start script:**
+    ```bash
+    ./start.sh
+    ```
+    This script handles everything: virtual environment setup, dependency installation, background service startup, and running the main application.
+
+## Setup Details (Handled by `start.sh`)
+
+The `./start.sh` script automates the following steps:
+
+1.  **Virtual Environment:** Creates/activates a Python 3.10+ virtual environment in `./venv`.
+2.  **Dependencies:** Installs required packages from `requirements.txt`.
+3.  **Local Package:** Installs the `voice-assistant` package in editable mode (`pip install -e .`).
+4.  **NER Service:** Starts the Named Entity Recognition service (`ner_service.py`) in the background.
+
+## Configuration ⚙️
+
+Edit `config.yaml` to customize:
+
+- **API Keys:** Set keys for LLM providers (e.g., `anthropic_api_key`, `openai_api_key`).
+- **Hotkey Duration:** Optionally adjust `min_hotkey_duration` (in seconds).
+- **Microphone:** (Optional) Force a specific microphone by setting `mic_name`.
+
+## Usage ▶️
+
+Simply run the start script:
 
 ```bash
-python3 -m venv ~/.local-voice-env && source ~/.local-voice-env/bin/activate && pip install -r requirements.txt && pip install -e . && voice-assistant --mode both
+./start.sh [arguments]
 ```
 
-## Setup
+Any arguments provided to `start.sh` will be passed directly to the main voice assistant application (e.g., to specify modes like `--mode hotkey`, though the script default might handle this).
 
-1. Create and activate a Python 3.10+ virtual environment:
-   ```bash
-   python3 -m venv ~/.local-voice-env
-   source ~/.local-voice-env/bin/activate
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   pip install -e .
-   ```
-3. (Optional) To enable grammar correction, install Java (OpenJDK 8+):
-   ```bash
-   brew install openjdk
-   ```
-4. Edit `config.yaml`:
-   - Set `picovoice_access_key` and update `keyword_paths` with your wake-word file (e.g., `hey-assistant.ppn`).
-   - Optionally adjust `wake_sensitivity` (0.0 to 1.0) to tune wake-word detection; higher values increase sensitivity.
-   - Set API keys for desired LLM providers (e.g., `anthropic_api_key`, `openai_api_key`).
-   - Optionally adjust `min_hotkey_duration` (in seconds).
-5. (Optional) To force a specific mic, set `mic_name` to the device name (or substring) in `config.yaml`.
-   On macOS, leaving it blank will auto-select the built-in microphone.
+The script will:
 
-## Usage
+- Set up the environment.
+- Start the background NER service.
+- Launch the main voice assistant application.
 
-```bash
-voice-assistant --mode trigger    # wake-word mode
-voice-assistant --mode hotkey     # push-to-talk mode
-voice-assistant --mode both       # both modes
-```
+Press the configured hotkey (<cmd> by default) to interact.
 
-On startup you should see INFO messages like:
-
-```
-Assistant starting in mode: both.
-Wake-word detection enabled.
-Hotkey (push-to-talk) detection enabled.
-```
-
-If you don't see these, the assistant may not have initialized correctly.
-In environments where global hotkeys aren't available, you can use the fallback PTT:
-• When you see "Fallback PTT: press ENTER in console to toggle recording", hit ENTER to start a recording session.
-• Press ENTER again to stop and process the recorded speech.
-
-Press the configured hotkey (<cmd> by default) or say your wake-word to interact.
+The NER service and other background processes started by the script will be automatically cleaned up when you stop the main application (e.g., with Ctrl+C).
