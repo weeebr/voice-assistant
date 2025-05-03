@@ -30,56 +30,54 @@ class AudioProcessor:
         self.clipboard_manager = clipboard_manager
         self.llm_client = llm_client
         self.transcription_logger = transcription_logger
+        self.signal_configs = []
         
-        # --- Load Signal Config from Python module (config.py) --- 
-        self.signal_configs = [] # Initialize as an empty list
+        # --- Load Signal Config --- 
         try:
-            # Import the module dynamically
-            import config 
-            # Reload the module in case it's changed since the app started (optional but safer)
+            import config as app_config # Import config.py
             import importlib
-            importlib.reload(config)
-            
-            # Attempt to access the expected variable (COMMANDS)
-            if hasattr(config, 'COMMANDS') and isinstance(config.COMMANDS, list):
-                self.signal_configs = config.COMMANDS # <-- Use correct variable name
-                logger.info(f"✅ Loaded {len(self.signal_configs)} signal configurations from variable 'COMMANDS' in config.py")
+            importlib.reload(app_config)
+            if hasattr(app_config, 'COMMANDS') and isinstance(app_config.COMMANDS, list):
+                self.signal_configs = app_config.COMMANDS
+                logger.info(f"✅ Loaded {len(self.signal_configs)} signal configurations from config.py")
+                # --- Pre-process configs for faster lookup (Optional but good) --- 
+                self.commands_by_name = {cfg.get("name"): cfg for cfg in self.signal_configs if cfg.get("name")}
+                logger.debug(f"Pre-processed {len(self.commands_by_name)} commands by name.")
+                # ----------------------------------------------------------------
             else:
-                logger.error("❌ Found config.py, but variable 'COMMANDS' is missing or not a list. Signals disabled.")
+                logger.error("❌ config.py has no 'COMMANDS' list. Signals disabled.")
         except ImportError:
-            logger.error("❌ Failed to import config.py. Does it exist in the Python path? Signals disabled.")
-            # If config.py is in the same directory, this shouldn't happen unless there's a syntax error
-            # preventing import.
+            logger.error("❌ Failed to import config.py. Signals disabled.")
         except Exception as e:
-            logger.exception(f"💥 Failed to load or process signal config from config.py: {e}")
-        # --- Removed old file reading/JSON parsing logic ---
-        
+            logger.exception(f"💥 Failed to load signal config from config.py: {e}")
+        # ------------------------
         logger.debug("AudioProcessor initialized.")
 
-    def process_audio(self, frames, current_translation_mode, current_stt_hint):
+    def process_audio(self, frames, current_processing_mode, current_stt_hint, default_processing_mode):
         """
-        Processes recorded audio frames.
+        Processes recorded audio frames based on signal words and current mode.
         
         Args:
             frames: A list of audio frames.
-            current_translation_mode: The current translation mode from Orchestrator.
+            current_processing_mode: The current processing mode ('normal', 'llm', 'de-CH').
             current_stt_hint: The current STT language hint for the next run.
+            default_processing_mode: The system's default processing mode (e.g., 'llm').
 
         Returns:
             A dictionary containing processing results:
             {
                 'text_to_paste': str | None,
-                'new_translation_mode': str | None,
+                'new_processing_mode': str,
                 'new_stt_hint': str | None,
                 'paste_successful': bool
             }
         """
-        logger.info("🔄 Starting audio processing pipeline...")
+        logger.info(f"🔄 Starting audio processing (Mode: {current_processing_mode}, Default: {default_processing_mode})...")
         if not frames:
             logger.warning("🤔 Process audio called with no frames.")
             return {
                 'text_to_paste': None,
-                'new_translation_mode': current_translation_mode,
+                'new_processing_mode': current_processing_mode,
                 'new_stt_hint': current_stt_hint,
                 'paste_successful': False
             }
@@ -87,9 +85,14 @@ class AudioProcessor:
         # --- Initialize state for this run --- 
         text_to_paste = None
         paste_successful = False
-        # Start with current state, these will be updated and returned
-        new_translation_mode = current_translation_mode 
+        # Start with current state, these will be updated by signal actions
+        new_processing_mode = current_processing_mode
         new_stt_hint = current_stt_hint
+        # This flag is determined *at the end*
+        paste_successful = False 
+        # --- Add flag to track if ONLY language hint was set by signal ---
+        only_language_action = False 
+        # ----------------------------------------------------------------
 
         # --- Use NotificationManager for beep (with delay) --- 
         # Add a small delay to allow audio system to settle
@@ -102,7 +105,8 @@ class AudioProcessor:
         all_segments = []
         # Removed: text_to_paste = None (already initialized above)
         chosen_signal_config = None  
-        text_for_handler = None # Store the text meant for the handler
+        text_for_signal_handler = None # Text remaining after signal phrase (if applicable)
+        signal_match_found = False
 
         try:
             # --- Determine STT Hint for THIS run --- 
@@ -148,23 +152,16 @@ class AudioProcessor:
 
             final_text_check = final_full_sanitized_text.lower().translate(str.maketrans('', '', string.punctuation)).strip()
 
-            # --- Initial Filtering ('you' and 'thank you') ---
-            if final_text_check == "you":
-                logger.info("🙅‍♀️ Detected only 'you', skipping.")
-                text_to_paste = None 
-            elif final_text_check == "thank you": # ADDED FILTER
-                logger.info("🙏 Detected only 'thank you', skipping.")
-                text_to_paste = None
+            # --- Initial Filtering --- 
+            if final_text_check == "you" or final_text_check == "thank you":
+                logger.info("🙅‍♀️ Detected only filter words, skipping.")
+                text_to_paste = None # Ensure nothing is pasted
             
-            # --- Process Text if not filtered and not empty ---
+            # --- Main Processing Logic --- 
             elif final_full_sanitized_text:
-                chosen_signal_config = None 
-                matched_signal_key = None # Keep track of the key for logging
-                text_for_handler = final_full_sanitized_text # Default if no match strips text
+                # --- 1. Check for Signal Word Match FIRST --- 
                 original_text_lower = final_full_sanitized_text.lower()
-
-                # --- Check for Signal Words (using loaded config list) --- 
-                for config in self.signal_configs: # Iterate directly over the list
+                for config in self.signal_configs:
                     signal_phrase_config = config.get('signal_phrase')
                     if not signal_phrase_config:
                         logger.warning(f"Signal config entry missing 'signal_phrase': {config}. Skipping.")
@@ -219,128 +216,194 @@ class AudioProcessor:
 
                     # --- Process if a match was found for this config ---                    
                     if match_found:
-                        logger.info(f"🚥 Signal detected: '{matched_phrase_in_list}' (via config '{config.get('name', 'Unnamed')}', Match type: {match_position})")
+                        signal_match_found = True
                         chosen_signal_config = config # Store the matched config dict
-                        text_for_handler = current_text_for_handler 
+                        text_for_signal_handler = current_text_for_handler 
+                        logger.info(f"🚥 Signal detected: '{matched_phrase_in_list}' (Config: '{config.get('name', 'Unnamed')}')")
                         break # Found a matching config, stop checking other configs
                 
-                # --- Perform Action Based on Signal (or Default) ---
-                if chosen_signal_config:
-                    # Use the matched phrase for context if needed, or config name
+                # --- 2. Process Based on Match or Mode --- 
+                if signal_match_found:
+                    # --- 2a. Matched Signal: Execute its actions --- 
+                    logger.debug(f"Executing actions for matched signal: {chosen_signal_config.get('name')}")
                     matched_signal_display = matched_phrase_in_list or chosen_signal_config.get('signal_phrase', 'Unknown')
                     overlay_msg = chosen_signal_config.get('overlay_message', f"🚥 Signal: '{matched_signal_display}'")
-                    self.notification_manager.show_message(overlay_msg)
+                    self.notification_manager.show_message(overlay_msg) # Show immediate feedback
                     
                     action_list = chosen_signal_config.get('action', [])
-                    # Use 'text' as the key for consistency with the template placeholder {text}
                     context = {
-                        'text': text_for_handler or "", 
+                        'text': text_for_signal_handler or "", 
                         'clipboard': self.clipboard_manager.get_content() or ""
                     }
                     
-                    text_to_paste = None
-                    llm_requested = False
-                    llm_model_override = None
-                    
-                    # --- Parse Actions and State Changes --- 
+                    llm_requested_this_turn = False # Action for THIS turn
+                    llm_params = {} # Store params like model override
+                    mode_set_by_signal = None # Track mode set by action
+                    hint_set_by_signal = None # Track hint set by action
+
+                    # --- Parse Actions --- 
                     for action_item in action_list:
-                        if not isinstance(action_item, str):
-                            logger.warning(f"Invalid action item type for signal '{matched_signal_display}': {action_item}")
-                            continue
-
-                        parts = action_item.split(':', 1)
-                        action_type = parts[0]
-                        action_value = parts[1] if len(parts) > 1 else None
+                        if not isinstance(action_item, str): continue
                         
+                        action_type = action_item
+                        action_value = None
+                        param_key = None
+                        param_value = None
+                        
+                        # Try splitting by ":" first
+                        if ':' in action_item:
+                            parts = action_item.split(':', 1)
+                            action_type = parts[0]
+                            raw_value = parts[1]
+                            
+                            # Check for param=value format in the value part
+                            if '=' in raw_value:
+                                param_parts = raw_value.split('=', 1)
+                                param_key = param_parts[0]
+                                param_value = param_parts[1]
+                                # Value for the action itself is considered None if params exist
+                                action_value = None 
+                            else:
+                                # No "=", so the whole part after ":" is the value
+                                action_value = raw_value
+                        # else: Action is simple, like "llm"
+
+                        # --- Process Parsed Action --- 
                         if action_type == "llm":
-                            llm_requested = True
-                            llm_model_override = action_value # Store override (can be None)
-                            logger.info(f"Action 'llm' requested for signal '{matched_signal_display}' (Override: {llm_model_override})")
-                        elif action_type == "set_next_stt":
+                            llm_requested_this_turn = True 
+                            if param_key == "model":
+                                llm_params['model_override'] = param_value
+                                logger.info(f"LLM model override parsed from action: {param_value}")
+                            # Add other llm params here if needed
+                        elif action_type == "mode":
                             if action_value:
-                                new_stt_hint = action_value
-                                logger.info(f"🎙️ State Change: Setting next STT hint to '{new_stt_hint}' from signal '{matched_signal_display}'.")
-                            else:
-                                logger.error(f"❌ Invalid state action format for signal '{matched_signal_display}': {action_item}")
-                        elif action_type == "set_translation_mode":
-                            if action_value:
-                                new_translation_mode = action_value
-                                logger.info(f"🛂 State Change: Setting translation mode to '{new_translation_mode}' from signal '{matched_signal_display}'.")
-                            else:
-                                 logger.error(f"❌ Invalid state action format for signal '{matched_signal_display}': {action_item}")
-                        # Add elif for other action types here if needed in future
-                        # else: 
-                        #     logger.warning(f"Unknown action type '{action_type}' for signal '{matched_signal_display}'")
-
-                    # --- Determine Text Output (based ONLY on 'template') --- 
-                    template = chosen_signal_config.get('template')
-                    if template:
-                        formatted_text = None
-                        try:
-                            formatted_text = template.format(**context)
-                            logger.debug(f"Formatted template for signal '{matched_signal_display}': '{formatted_text[:100]}...'")
-                        except KeyError as e:
-                            logger.error(f"❌ Invalid placeholder {{{e}}} in template for signal '{matched_signal_display}'.")
-                        except Exception as e:
-                            logger.exception(f"💥 Error formatting template for signal '{matched_signal_display}': {e}")
-                            formatted_text = template # Use raw template on formatting error? Or None?
+                                new_processing_mode = action_value 
+                                mode_set_by_signal = new_processing_mode
+                                logger.info(f"🚦 State Change Action: Setting NEXT processing mode to '{new_processing_mode}'.")
+                            else: logger.error("Invalid mode action format (needs :value)")
+                        elif action_type == "language": 
+                             if action_value:
+                                 new_stt_hint = action_value
+                                 hint_set_by_signal = new_stt_hint # Track hint set
+                                 logger.info(f"🎙️ State Change Action: Setting NEXT STT hint to '{new_stt_hint}'.")
+                             else: logger.error("Invalid language action format (needs :value)")
+                        # Add other actions here
                         
-                        # Use the formatted text either for LLM or directly
-                        if formatted_text is not None: # Proceed only if formatting was successful (or fallback used)
-                            if llm_requested:
-                                try:
-                                    # --- Pass notification_manager to transform_text --- 
-                                    # Notification is now handled *inside* LLMClient helpers
-                                    # self.notification_manager.show_message(f"🧠 Calling LLM: {llm_model_override or self.config.get('llm_model') or '???'}")
-                                    text_to_paste = self.llm_client.transform_text(
-                                        formatted_text, 
-                                        notification_manager=self.notification_manager, # <-- Pass it here
-                                        model_override=llm_model_override
-                                    )
-                                except Exception as e:
-                                    logger.exception(f"💥 Error during LLM action for signal '{matched_signal_display}': {e}")
-                                    text_to_paste = None # Ensure failure results in None
-                            else: # Not an LLM request, use the formatted text directly
-                                logger.info(f"Using formatted template directly for signal '{matched_signal_display}'.")
-                                text_to_paste = formatted_text 
-                    else: # No 'template' found
-                        logger.warning(f"⚠️ No 'template' key found for signal '{matched_signal_display}'. No text will be generated.")
+                    # --- Determine final mode/hint to return --- 
+                    # Mode only changes if explicitly set
+                    if mode_set_by_signal is None:
+                        new_processing_mode = current_processing_mode 
+                    # Hint only changes if explicitly set 
+                    if hint_set_by_signal is None:
+                        new_stt_hint = current_stt_hint
+                        
+                    # --- Generate Text Output (if template exists AND llm requested) --- 
+                    template = chosen_signal_config.get('template')
+                    if template and llm_requested_this_turn:
+                        try:
+                            formatted_text_for_llm = template.format(**context)
+                            # Use model override from config as base, override with parsed action param if exists
+                            final_model_override = llm_params.get('model_override', chosen_signal_config.get('llm_model_override'))
+                            logger.info(f"🧠 Calling LLM for signal '{chosen_signal_config.get('name')}' (Model: {final_model_override or 'Default'})...")
+                            text_to_paste = self.llm_client.transform_text(
+                                formatted_text_for_llm,
+                                notification_manager=self.notification_manager,
+                                model_override=final_model_override
+                            )
+                        except Exception as e:
+                            logger.exception(f"💥 Error formatting/calling LLM for signal: {e}")
+                            text_to_paste = None 
+                    elif template and not llm_requested_this_turn:
+                        # Template exists but LLM not requested - this case might need refinement.
+                        # Should it format and paste directly? Or is template only for LLM?
+                        # For now, let's assume template implies LLM is needed, so do nothing if llm action missing.
+                        logger.warning(f"Template found for signal '{chosen_signal_config.get('name')}' but no 'llm' action specified. Ignoring template.")
                         text_to_paste = None
+                    elif not template and llm_requested_this_turn:
+                        # LLM requested but no template? Maybe just pass raw text?
+                        logger.warning(f"'llm' action specified for signal '{chosen_signal_config.get('name')}' but no template found. Sending raw text (if any)...")
+                        text_to_paste = self.llm_client.transform_text(
+                                context['text'], # Send remaining text after signal phrase
+                                notification_manager=self.notification_manager,
+                                model_override=llm_params.get('model_override') # Use parsed param if exists
+                            )
+                    else:
+                        # No template and no LLM requested = likely just state change
+                        logger.info("Signal matched. No template/LLM action. Likely just state change.")
+                        text_to_paste = None # Ensure nothing is pasted
 
-                # --- No Signal Word Found (Default Behavior) ---
-                else: 
-                    logger.info("🚫 No signal phrase detected. Passing through.")
-                    text_to_paste = final_full_sanitized_text # Set the text for passthrough
+                else:
+                    # --- 2b. No Signal Matched: Apply Current Mode's Default Behavior --- 
+                    logger.info(f"🚫 No signal detected. Applying default behavior for mode: {current_processing_mode}")
+                    
+                    # --- Handle Specific Modes --- 
+                    if current_processing_mode == 'de-CH': # Use locale code
+                        logger.info("🇨🇭 Mode = de-CH. Looking up config and calling LLM...")
+                        # Use the pre-processed lookup
+                        sg_config = self.commands_by_name.get("mode:de-CH") 
+                        if sg_config and sg_config.get('template'):
+                             # ... (rest of de-CH logic using sg_config) ...
+                             template = sg_config.get('template')
+                             model_override = sg_config.get('llm_model_override')
+                             context = {'text': final_full_sanitized_text, 'clipboard': ''}
+                             try:
+                                 formatted_text_for_llm = template.format(**context)
+                                 text_to_paste = self.llm_client.transform_text(
+                                     formatted_text_for_llm,
+                                     notification_manager=self.notification_manager,
+                                     model_override=model_override
+                                 )
+                             except Exception as e:
+                                 logger.exception("💥 Error formatting/calling LLM for de-CH mode")
+                                 text_to_paste = None
+                        else:
+                             logger.error("❌ Could not find config or template for 'mode:de-CH' to apply mode.")
+                             text_to_paste = None
+                             
+                    # --- Check for "llm" mode --- 
+                    elif current_processing_mode == 'llm':
+                        # --- Handle LLM Mode --- 
+                        logger.info("🧠 Mode = llm. Sending text to LLM chat...")
+                        try:
+                            prompt_for_llm = f"User said: {final_full_sanitized_text}"
+                            logger.debug(f"Formatted prompt for llm mode: {prompt_for_llm[:100]}...")
+                            text_to_paste = self.llm_client.transform_text(
+                                prompt_for_llm,
+                                notification_manager=self.notification_manager
+                            )
+                        except Exception as e:
+                            logger.exception("💥 LLM Error during llm mode processing")
+                            text_to_paste = None
+                    # -------------------------
+                            
+                    else: 
+                        # --- Default "Normal" Mode (Passthrough) --- 
+                        if current_processing_mode != 'normal':
+                             logger.warning(f"Unknown processing mode '{current_processing_mode}'. Defaulting to normal passthrough.")
+                             
+                        logger.info(" Mode = normal (Default). Passing through text.")
+                        text_to_paste = final_full_sanitized_text
 
-            # --- Safety Check (If text is unexpectedly None) ---
-            elif text_to_paste is None and final_full_sanitized_text: 
-                 logger.warning(f"Text '{final_full_sanitized_text}' resulted in None for pasting unexpectedly after processing.")
+            # else: final_full_sanitized_text was empty, text_to_paste remains None
 
         except Exception as e:
             logger.exception(f"💥 Unhandled error in audio processing pipeline: {e}")
             # Ensure state is returned even on error
             return {
                 'text_to_paste': None,
-                'new_translation_mode': current_translation_mode, # Return original state on error
+                'new_processing_mode': current_processing_mode, # Return original state on error
                 'new_stt_hint': current_stt_hint,
                 'paste_successful': False
             }
 
-        # --- Final Cleanup and Return --- 
-        # Determine final paste_successful flag based ONLY on whether text_to_paste is set
-        if text_to_paste is None:
-             logger.info("🤷 No text determined for pasting.")
-             paste_successful = False # Final decision: Don't paste
-        else:
-             logger.info(f"➡️ Preparing return value: text_to_paste='{text_to_paste[:100]}...', paste_successful=True")
-             paste_successful = True # Final decision: Paste needed
-
-        logger.info(f"🏁 Audio processing finished. Returning: paste_successful={paste_successful}, mode='{new_translation_mode}', hint='{new_stt_hint}'") # Reuse log from before
+        # --- Final Determination of paste_successful flag --- 
+        paste_successful = text_to_paste is not None and text_to_paste != ""
+        logger.info(f"🏁 Audio processing finished. Returning: paste_successful={paste_successful}, mode='{new_processing_mode}', hint='{new_stt_hint}'")
         return {
             'text_to_paste': text_to_paste,
-            'new_translation_mode': new_translation_mode,
+            'new_processing_mode': new_processing_mode,
             'new_stt_hint': new_stt_hint,
-            'paste_successful': paste_successful # Return the correctly determined flag
+            'paste_successful': paste_successful
         }
         
     def _sanitize_text(self, text):

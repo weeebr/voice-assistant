@@ -54,13 +54,23 @@ class SpeechToText:
             os.dup2(devnull, stdout_fd)
             os.dup2(devnull, stderr_fd)
 
+            # Extract 2-letter code for faster-whisper if a hint is provided
+            language_code_for_model = None
+            if language:
+                if isinstance(language, str) and len(language) >= 2:
+                    language_code_for_model = language[:2].lower()
+                    logger.debug(f"Using extracted 2-letter language code for model: {language_code_for_model}")
+                else:
+                    logger.warning(f"Received invalid language hint '{language}'. Ignoring hint.")
+            
             # Get the segment generator from the model
             segments_generator, info = self.model.transcribe(
                     audio,
                     beam_size=self.beam_size,
-                    language=language
+                    language=language_code_for_model # Pass the extracted 2-letter code
                 )
 
+            # Log detected language (info.language might differ from hint)
             logger.debug(f"Detected language: {info.language} (probability: {info.language_probability:.2f})")
             logger.debug("Yielding segments...")
 

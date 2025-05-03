@@ -63,7 +63,8 @@ class Orchestrator:
         "shift": {Key.shift, Key.shift_l, Key.shift_r},
         # Add other keys if needed (e.g., F-keys?)
     }
-    DEFAULT_PTT_KEY_NAME = "option" # Fallback if config is invalid
+    DEFAULT_PTT_KEY_NAME = "option"
+    DEFAULT_PROCESSING_MODE = "normal" # Changed from "llm"
     
     def __init__(self, config):
         logger.debug("Orchestrator initializing...")
@@ -74,9 +75,12 @@ class Orchestrator:
         self.active_recording_thread = None
         self.cancel_requested = False
         self._last_paste_successful = False
-        self.translation_mode = None
         self.next_stt_language_hint = None
-        self._playback_was_paused = False # Flag to track if we paused playback
+        self._playback_was_paused = False
+        # --- Add new state --- 
+        self.processing_mode = self.DEFAULT_PROCESSING_MODE
+        logger.info(f"🚦 Initial processing mode set to: {self.processing_mode}")
+        # --------------------
         
         # --- Initialize Managers --- 
         self.playback_manager = SystemPlaybackManager()
@@ -189,12 +193,11 @@ class Orchestrator:
         """Callback executed by HotkeyManager when PTT key is pressed."""
         logger.debug(f"Orchestrator: _handle_ptt_start called (Ctrl: {ctrl_pressed}).")
         self._playback_was_paused = False # Reset flag at start
+        self.cancel_requested = False # Reset flag at start
         # Check if a recording thread from AudioRecorder is already active
         if self.active_recording_thread and self.active_recording_thread.is_alive():
              logger.warning("PTT Start requested, but recording thread already active.")
              return
-             
-        self.cancel_requested = False
         
         # --- Conditionally Pause Playback --- 
         if ctrl_pressed:
@@ -246,44 +249,55 @@ class Orchestrator:
             return # Stop processing
 
         # --- Check Duration and Frames ---
-        if not frames or duration < self.min_ptt_duration:
-            if not frames:
-                logger.warning("⚠️ No audio frames captured after stop. Skipping.")
-            else:
-                logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
+        if not frames:
+            logger.warning("⚠️ No audio frames captured after stop. Skipping.")
+        if duration < self.min_ptt_duration:
+            logger.info(f"❌ Duration too short ({duration:.2f}s < {self.min_ptt_duration}s). Skipping.")
             self.notification_manager.hide_overlay() # <-- FIX 1: Use hide_overlay
             return # Stop processing
 
         # --- Process Audio Synchronously ---
-        logger.info(f"✅ Duration OK ({duration:.2f}s). Processing audio synchronously...")
-        self.notification_manager.show_message(f"Processing... [{duration:.2f}s]") # Show processing message
+        logger.info(f"✅ Duration OK ({duration:.2f}s). Processing audio synchronously (Mode: {self.processing_mode})...")
+        self.notification_manager.show_message(f"Processing... [{duration:.2f}s]")
 
         try:
             processing_result = self.audio_processor.process_audio(
                 frames,
-                self.translation_mode,
-                self.next_stt_language_hint
+                self.processing_mode, # Pass current mode
+                self.next_stt_language_hint,
+                self.DEFAULT_PROCESSING_MODE # Pass default mode
             )
             logger.debug(f"AudioProcessor returned: {processing_result}")
 
-            # --- Update Orchestrator State ---
-            self.translation_mode = processing_result.get('new_translation_mode', self.translation_mode)
+            # --- Update Orchestrator State --- 
+            # Update mode based on result, default to current if not specified
+            self.processing_mode = processing_result.get('new_processing_mode', self.processing_mode)
             self.next_stt_language_hint = processing_result.get('new_stt_hint', None)
-            logger.info(f"Orchestrator state updated: Mode='{self.translation_mode}', Next Hint='{self.next_stt_language_hint}'")
+            # logger.info(f"Orchestrator state updated: Mode='{self.processing_mode}', Next Hint='{self.next_stt_language_hint}'") # Updated log below
 
-            # --- Paste to Clipboard (Single Point) ---
+            # --- Paste to Clipboard (Single Point) --- 
             text_to_paste = processing_result.get('text_to_paste')
             paste_successful = processing_result.get('paste_successful', False)
 
             if paste_successful and text_to_paste is not None:
-                logger.info(f"Attempting paste: '{text_to_paste[:100]}...'")
+                logger.info(f"Attempting paste (Mode: {self.processing_mode}): '{text_to_paste[:100]}...'")
                 self.clipboard_manager.copy_and_paste(text_to_paste) # *** THE ONLY PASTE CALL ***
                 self.notification_manager.show_message(f"Pasted: {text_to_paste[:50]}...", duration=2.0)
                 self._last_paste_successful = True
             else:
-                logger.info("No text to paste or paste marked unsuccessful.")
-                self.notification_manager.hide_overlay() # <-- FIX 2: Use hide_overlay
+                # Log mode change even if nothing is pasted
+                mode_changed = processing_result.get('new_processing_mode') != self.processing_mode and processing_result.get('new_processing_mode') is not None
+                if not text_to_paste and not mode_changed:
+                     logger.info(f"No text to paste and no mode change (Mode: {self.processing_mode}).")
+                elif mode_changed:
+                     logger.info(f"Mode changed to '{self.processing_mode}'. No text pasted this time.")
+                # Hide processing message if nothing pasted and mode didn't change
+                if not mode_changed:
+                     self.notification_manager.hide_overlay()
                 self._last_paste_successful = False
+                
+            # Log final state clearly
+            logger.info(f"Orchestrator state after processing: Mode='{self.processing_mode}', Next Hint='{self.next_stt_language_hint}'")
 
         except Exception as e:
             logger.exception("💥 Error during synchronous audio processing:")
@@ -313,6 +327,10 @@ class Orchestrator:
              logger.debug("Cancel requested but no active recording thread found.")
              # Reset flag even if no recording was active, just in case
              self._playback_was_paused = False 
+        
+        # --- Show Cancellation Notification --- 
+        self.notification_manager.show_message("Cancelled", duration=1.0)
+        # ------------------------------------
         
         # Notification handled by _handle_ptt_stop when it sees cancel_requested flag
 

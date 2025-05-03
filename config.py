@@ -7,26 +7,35 @@ COMMANDS = [
     "name": "language:de",
     "signal_phrase": ["german", "chairman"],
     "match_position": "exact",
-    "action": ["stt_language:de"],
-    "overlay_message": "Mode: 🇩🇪"
-  },
-  {
-    "name": "llm",
-    "signal_phrase": ["llm"],
-    "match_position": "exact",
-    "action": ["llm"],
-    "overlay_message": "Mode: 🤖"
+    "action": ["language:de-DE", "mode:normal"],
+    "overlay_message": "STT Hint: 🇩🇪 (Mode: Normal)"
   },
   {
     "name": "language:en",
-    "signal_phrase": ["english"],
+    "signal_phrase": "english",
     "match_position": "exact",
-    "action": ["stt_language:en"],
-    "overlay_message": "Mode: 🇬🇧"
+    "action": ["language:en-US", "mode:normal"],
+    "overlay_message": "STT Hint: 🇬🇧 (Mode: Normal)"
   },
   {
-    "name": "big files",
-    "signal_phrase":["big files"],
+    "name": "mode:de-CH",
+    "signal_phrase": ["swiss german", "swiss chairman"],
+    "match_position": "start",
+    "action": ["mode:de-CH"],
+    "template": "Translate the following English text into Central Swiss German (Schweizerdeutsch). Provide only the translation:\n\nEnglish Text: {text}",
+    "llm_model_override": "claude-3-haiku-20240307",
+    "overlay_message": "Mode: 🇨🇭 Translate"
+  },
+  {
+    "name": "mode:llm",
+    "signal_phrase": "llm",
+    "match_position": "exact",
+    "action": ["mode:llm"],
+    "overlay_message": "Mode: 🧠 LLM"
+  },
+  {
+    "name": "command:big_files",
+    "signal_phrase": "big files",
     "match_position": "start",
     "action": [],
     "template": """Use the following command to find our largest files:
@@ -40,20 +49,13 @@ Then, start with the largest files and refactor our codebase enforcing:
 - all files to not have more than 300 lines of code
 """},
   {
-    "name": "swiss german",
-    "signal_phrase": ["swiss german", "swiss chairman"],
-    "match_position": "start",
-    "action": ["llm:claude-3-haiku-20240307"],
-    "template": "Translate the following English text into Central Swiss German (Schweizerdeutsch). Provide only the translation:\n\nEnglish Text: {text}",
-    "overlay_message": "Mode: 🇨🇭"
-  },
-  {
-    "name": "short summary",
+    "name": "command:short_summary",
     "signal_phrase": "short",
     "match_position": "start",
     "action": ["llm"],
     "template": "Summarize the following text in bullet points using mostly keywords or very short phrases: {clipboard}"
-  }
+  },
+  
 ]
 
 # --- Function moved from AudioProcessor ---

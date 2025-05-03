@@ -30,7 +30,7 @@ class LLMClient:
     """Manages initialization and interaction with different LLM providers."""
 
     # Default model IDs if not overridden
-    DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-exp-03-25" 
+    DEFAULT_GOOGLE_MODEL = "gemini-1.5-flash" 
     DEFAULT_ANTHROPIC_MODEL = "claude-3-haiku-20240307"
     DEFAULT_OPENAI_MODEL = "gpt-4o" # <-- Added OpenAI default
     
