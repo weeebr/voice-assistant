@@ -25,6 +25,7 @@ from .hotkey import HotkeyManager # Added Import
 from .audio_recorder import AudioRecorder # <-- Add new import
 from .audio_processor import AudioProcessor # <-- Add new import
 from .notification_manager import NotificationManager # <-- Add import
+from .api_client import NERServiceClient
 
 # --- Import from config.py --- 
 import config as app_config # Use alias to avoid naming conflicts
@@ -83,8 +84,15 @@ class Orchestrator:
         
         # --- Initialize Managers --- 
         self.playback_manager = SystemPlaybackManager()
-        self.clipboard_manager = ClipboardManager(self) # Pass self for suppression flag access
-        self.llm_client = LLMClient(config) # Initialize LLMClient
+        self.clipboard_manager = ClipboardManager(self)
+        self.llm_client = LLMClient(config)
+        
+        # <<< CHANGE Instantiation >>>
+        ner_service_url = config.get('ner_service_url', 'http://localhost:5001/extract')
+        logger.info(f"🧐 Configuring NERServiceClient to use service at: {ner_service_url}")
+        self.ner_service_client = NERServiceClient(ner_service_url) # Use new class name and instance variable name
+        # -----------------------------------------------------
+        
         # HotkeyManager needs to be initialized *after* we know the key
         # We will initialize it after audio components
         # self.hotkey_manager = HotkeyManager(...) # Defer initialization
@@ -142,12 +150,10 @@ class Orchestrator:
         self.audio_processor = AudioProcessor(
             stt=self.stt,
             config=self.config,
-            # Remove overlay and beep func, pass notification manager
-            # overlay=self.overlay, 
-            # orchestrator_beep_func=self._play_beep 
             notification_manager=self.notification_manager,
             clipboard_manager=self.clipboard_manager,
             llm_client=self.llm_client,
+            ner_service_client=self.ner_service_client, 
             transcription_logger=transcription_logger 
         )
         logger.debug("AudioProcessor initialized within Orchestrator.")
@@ -198,7 +204,7 @@ class Orchestrator:
         if self.active_recording_thread and self.active_recording_thread.is_alive():
              logger.warning("PTT Start requested, but recording thread already active.")
              return
-        
+             
         # --- Conditionally Pause Playback --- 
         if ctrl_pressed:
             logger.info("Ctrl key detected with PTT start, pausing playback...")
@@ -239,7 +245,7 @@ class Orchestrator:
         else:
              logger.debug("Playback was not paused for this recording, skipping resume.")
         self._playback_was_paused = False # Reset flag after handling stop
-        # -------------------------------------
+                # -------------------------------------
 
         # --- Handle Cancellation ---
         if self.cancel_requested:
@@ -267,13 +273,11 @@ class Orchestrator:
                 self.next_stt_language_hint,
                 self.DEFAULT_PROCESSING_MODE # Pass default mode
             )
-            logger.debug(f"AudioProcessor returned: {processing_result}")
 
             # --- Update Orchestrator State --- 
             # Update mode based on result, default to current if not specified
             self.processing_mode = processing_result.get('new_processing_mode', self.processing_mode)
             self.next_stt_language_hint = processing_result.get('new_stt_hint', None)
-            # logger.info(f"Orchestrator state updated: Mode='{self.processing_mode}', Next Hint='{self.next_stt_language_hint}'") # Updated log below
 
             # --- Paste to Clipboard (Single Point) --- 
             text_to_paste = processing_result.get('text_to_paste')

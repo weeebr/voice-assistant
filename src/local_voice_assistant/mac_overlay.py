@@ -42,7 +42,7 @@ class MacNotification:
              logger.debug(f"Duration ({duration}s) provided but ignored by MacNotification.")
              
         self._last_message = text
-        logger.debug(f"Showing notification: '{text}' (Group: {group_id})")
+        # logger.debug(f"Showing notification: '{text}' (Group: {group_id})")
 
         lower_text = text.lower()
         
@@ -79,7 +79,8 @@ class MacNotification:
                 else:
                     cmd = cmd_base
                     
-                subprocess.run(cmd, check=False)
+                # <<< Redirect stdout/stderr to silence terminal-notifier output >>>
+                subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 logger.debug("terminal-notifier command sent successfully")
             else:
                 # Basic AppleScript notification as fallback (no easy replacement for icon/subtitle)

@@ -8,6 +8,6 @@ language: "en-US" # Default language for STT (e.g., en-US, de-DE, fr-FR)
 sample_rate: 16000 # Audio sample rate (must match STT model requirement)
 vad_aggressiveness: 2 # VAD aggressiveness (0-3, higher = less sensitive)
 mic_name: "" # Optional: name (or substring) of mic device.
-llm_provider: "anthropic" # Added: Specify 'google', 'openai' or 'anthropic'
+llm_provider: "google" # Added: Specify 'google', 'openai' or 'anthropic'
 ptt_hotkey: "option" # Name of the key for PTT (e.g., "option", "cmd", "ctrl", "shift")
 min_ptt_duration: 1.2 # Already defined as constant in Orchestrator class

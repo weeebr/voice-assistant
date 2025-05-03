@@ -12,7 +12,7 @@ COMMANDS = [
   },
   {
     "name": "language:en",
-    "signal_phrase": "english",
+    "signal_phrase": ["english", "englisch"],
     "match_position": "exact",
     "action": ["language:en-US", "mode:normal"],
     "overlay_message": "STT Hint: 🇬🇧 (Mode: Normal)"
@@ -34,12 +34,12 @@ COMMANDS = [
     "overlay_message": "Mode: 🧠 LLM"
   },
   {
-    "name": "command:big_files",
+    "name": "template:big_files",
     "signal_phrase": "big files",
     "match_position": "start",
-    "action": [],
+    "action": ["process_template"],
     "template": """Use the following command to find our largest files:
-`find . \( -false -o -path .git -o -path ./venv -o -path node_modules \) -prune -o -type f -exec wc -l {} + | cat | sort -nr`.
+`find . \\( -false -o -path .git -o -path ./venv -o -path node_modules \\) -prune -o -type f -exec wc -l {{}} + | cat | sort -nr`.
 
 Then, start with the largest files and refactor our codebase enforcing:
 - to not lose or break existing logic
@@ -49,13 +49,20 @@ Then, start with the largest files and refactor our codebase enforcing:
 - all files to not have more than 300 lines of code
 """},
   {
-    "name": "command:short_summary",
+    "name": "llm:short_summary",
     "signal_phrase": "short",
     "match_position": "start",
     "action": ["llm"],
     "template": "Summarize the following text in bullet points using mostly keywords or very short phrases: {clipboard}"
   },
-  
+  {
+    "name": "ner:extract_entities",
+    "signal_phrase": ["find entities"],
+    "match_position": "start",
+    "action": ["ner_extract:types_source=spoken"],
+    "template": "{clipboard}",
+    "overlay_message": "🧐 Extracting Entities..."
+  },
 ]
 
 # --- Function moved from AudioProcessor ---

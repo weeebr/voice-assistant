@@ -72,15 +72,12 @@ class SpeechToText:
 
             # Log detected language (info.language might differ from hint)
             logger.debug(f"Detected language: {info.language} (probability: {info.language_probability:.2f})")
-            logger.debug("Yielding segments...")
 
             segment_count = 0
             # Iterate through the generator and yield each segment
             for segment in segments_generator:
-                logger.debug(f"Yielding segment [{segment.start:.2f}s - {segment.end:.2f}s]: {segment.text}")
                 yield segment
                 segment_count += 1
-            logger.debug(f"Finished yielding {segment_count} segments.")
 
         except Exception as e:
             logger.exception(f"Error during Whisper transcription: {e}")

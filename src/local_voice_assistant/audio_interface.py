@@ -4,6 +4,9 @@ try:
     import soundcard as sc
 except ImportError:
     sc = None
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Dummy microphone/recorder for environments without soundcard (e.g., tests)
 class _DummyRecorder:
@@ -60,10 +63,9 @@ class AudioCapture:
                     self.mic = sc.default_microphone()
         # Debug: show selected mic device
         try:
-            print(f"Candidates: {[m for m in sc.all_microphones(include_loopback=False)]}")
-            print(f"Using microphone: {self.mic.name}", flush=True)
-        except Exception:
-            pass
+            logger.info(f"Using microphone: {self.mic.name}")
+        except Exception as e:
+            logger.warning(f"Could not log microphone name: {e}")
 
     def wake_audio_stream(self):
         """

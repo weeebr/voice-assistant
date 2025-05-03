@@ -61,7 +61,6 @@ class NotificationManager:
     def show_message(self, message, duration=None, group_id="assistant_message"):
         """Shows a message on the overlay if available."""
         if self.overlay:
-            logger.debug(f"NM showing overlay: '{message}' (Duration: {duration}, Group: {group_id})")
             try:
                 # Pass duration and group_id if overlay supports them
                 self.overlay.show_message(message, duration=duration, group_id=group_id)

@@ -13,3 +13,7 @@ torch
 # Add dotenv
 python-dotenv
 numpy
+# Add GLiNER
+gliner
+# Add Flask for NER Service
+Flask

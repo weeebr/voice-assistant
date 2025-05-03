@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 # Attempt to import LLM libraries
 try:
@@ -10,11 +11,13 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
-try:
-    import google.generativeai as genai
-    GOOGLE_AVAILABLE = True
-except ImportError:
-    GOOGLE_AVAILABLE = False
+# <<< REMOVED: Top-level Google import block >>>
+# try:
+#     import google.generativeai as genai
+#     GOOGLE_AVAILABLE = True
+# except ImportError as e:
+#     print(f"!!! DEBUG: FAILED to import google.generativeai: {e}", file=sys.stderr)
+#     GOOGLE_AVAILABLE = False
 
 # --- NEW: Add OpenAI ---    
 try:
@@ -64,27 +67,40 @@ class LLMClient:
             # else: logger.warning("🤖 Anthropic client disabled: ANTHROPIC_API_KEY not set.")
         # else: logger.warning("🤖 Anthropic client disabled: 'anthropic' package not installed.")
 
-        # Initialize Google client (if available and key set)
-        if GOOGLE_AVAILABLE:
-            _google_api_key = os.getenv("GOOGLE_API_KEY")
-            if _google_api_key:
+        # Initialize Google client (if API key set)
+        _google_api_key = os.getenv("GOOGLE_API_KEY")
+        if _google_api_key:
+            _genai_module = None # Temp variable for imported module
+            try:
+                # <<< MOVED: Import google.generativeai here >>>
+                import google.generativeai as genai
+                _genai_module = genai # Store imported module if successful
+            except ImportError as e:
+                logger.error(f"✨❌ Failed to import google.generativeai package. Is it installed correctly? Error: {e}")
+                # Keep self._google_client_module as None
+            
+            # Only proceed if import succeeded
+            if _genai_module:
                 try:
-                    genai.configure(api_key=_google_api_key)
+                    _genai_module.configure(api_key=_google_api_key)
                     # Store the configured genai module itself
-                    self._google_client_module = genai 
+                    self._google_client_module = _genai_module 
                     logger.info("✨ Google AI client initialized successfully (Gemini).")
                 except Exception as e:
-                    logger.error(f"✨❌ Google AI init failed: {e}")
-            # Keep warnings concise
-            # else: logger.warning("✨ Google AI client disabled: GOOGLE_API_KEY not set.")
-        # else: logger.warning("✨ Google AI client disabled: 'google-generativeai' package not installed.")
+                    logger.error(f"✨❌ Google AI configure failed: {e}")
+                    # Keep self._google_client_module as None
+            # Print final status after attempt
+            # print(f"!!! DEBUG: Google client module AFTER init attempt: {self._google_client_module}", file=sys.stderr)
+        else:
+            logger.warning("✨ Google AI client disabled: GOOGLE_API_KEY not set.")
+            # Ensure it's None if key wasn't set
+            self._google_client_module = None 
 
         # --- NEW: Initialize OpenAI client --- 
         if OPENAI_AVAILABLE:
             logger.debug("Attempting to initialize OpenAI client...")
             _openai_api_key = os.getenv("OPENAI_API_KEY")
             if _openai_api_key:
-                logger.debug("OPENAI_API_KEY found in environment.")
                 try:
                     self._openai_client = openai.OpenAI(api_key=_openai_api_key)
                     logger.info("○ OpenAI client initialized successfully (GPT).")
@@ -100,12 +116,12 @@ class LLMClient:
         # Log final status
         provider_status = []
         if self._anthropic_client: provider_status.append("Anthropic(✅)")
-        if hasattr(self, '_google_client_module'): provider_status.append("Google(✅)")
+        if self._google_client_module is not None: provider_status.append("Google(✅)")
         if self._openai_client: provider_status.append("OpenAI(✅)") # <-- Added OpenAI status
         logger.info(f"LLM Client Status: Default Provider='{self.provider}', Available=[{', '.join(provider_status) if provider_status else 'None'}]")
         
         # Log potential issues clearly
-        if self.provider == 'google' and not hasattr(self, '_google_client_module'):
+        if self.provider == 'google' and self._google_client_module is None:
              logger.error(f"LLM provider set to 'google' but client failed to initialize!")
         elif self.provider == 'anthropic' and not self._anthropic_client:
              logger.error(f"LLM provider set to 'anthropic' but client failed to initialize!")
@@ -138,7 +154,7 @@ class LLMClient:
                     client_available = False
                     if provider_key == 'anthropic' and self._anthropic_client:
                         client_available = True
-                    elif provider_key == 'google' and hasattr(self, '_google_client_module'):
+                    elif provider_key == 'google' and self._google_client_module is not None:
                         client_available = True
                     elif provider_key == 'openai' and self._openai_client: # <-- Check OpenAI client
                         client_available = True
@@ -171,7 +187,7 @@ class LLMClient:
         
         # --- Call Appropriate Helper Method ---
         if target_provider == 'google':
-            if hasattr(self, '_google_client_module'):
+            if self._google_client_module is not None:
                 # Pass notification_manager down
                 return self._call_google(prompt, final_model_id, notification_manager)
             else:
@@ -201,6 +217,13 @@ class LLMClient:
 
     def _call_google(self, prompt: str, model_id: str, notification_manager) -> str | None:
         """Handles the API call to Google Gemini, including notification."""
+        # --- Add Check: Ensure client module is not None --- 
+        # This is an extra safeguard, shouldn't be needed if transform_text checks work
+        if self._google_client_module is None:
+            logger.error("✨❌ _call_google invoked but google_client_module is None!")
+            return None
+        # ----------------------------------------------------
+        
         # --- Show Notification --- 
         if notification_manager:
              notification_manager.show_message(f"🧠 Calling Google: {model_id}")
