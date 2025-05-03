@@ -48,6 +48,9 @@ class HotkeyManager:
                 if not self.ptt_key_held:
                     logger.debug("HotkeyManager: PTT key pressed.")
                     self.ptt_key_held = True
+                    # --- Add logging to verify ctrl state BEFORE callback ---
+                    logger.info(f"HotkeyManager: About to call on_ptt_start with ctrl_pressed={self._ctrl_held}") 
+                    # ------------------------------------------------------
                     # --- Pass Ctrl state to callback ---
                     self.on_ptt_start(ctrl_pressed=self._ctrl_held)
                     # -----------------------------------

@@ -88,14 +88,16 @@ class AudioRecorder:
             logger.debug("🔊 Audio stream opened for PTT recording.")
 
             while not self.stop_event.is_set():
-                 # --- Check for duration-based pause ---
-                 now = time.monotonic()
-                 elapsed = now - self.start_time
-                 if not self.pause_timer_triggered and elapsed >= self.min_pause_duration:
-                     logger.info(f"⏱️ Recording duration threshold reached ({self.min_pause_duration}s). Attempting pause.")
-                     paused_successfully = self.playback_manager.pause() # Use injected manager
-                     if paused_successfully:
-                         self.pause_timer_triggered = True 
+                 # --- REMOVE Check for duration-based pause --- 
+                 # Playback pausing is now handled EXCLUSIVELY by Orchestrator
+                 # based on the Ctrl key state.
+                 # now = time.monotonic()
+                 # elapsed = now - self.start_time
+                 # if not self.pause_timer_triggered and elapsed >= self.min_pause_duration:
+                 #     logger.info(f"⏱️ Recording duration threshold reached ({self.min_pause_duration}s). Attempting pause.")
+                 #     paused_successfully = self.playback_manager.pause() # Use injected manager
+                 #     if paused_successfully:
+                 #         self.pause_timer_triggered = True 
                  # -------------------------------------
 
                  try:

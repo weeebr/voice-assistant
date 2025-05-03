@@ -11,15 +11,22 @@ COMMANDS = [
     "overlay_message": "Mode: 🇩🇪"
   },
   {
+    "name": "llm",
+    "signal_phrase": ["llm"],
+    "match_position": "exact",
+    "action": ["llm"],
+    "overlay_message": "Mode: 🤖"
+  },
+  {
     "name": "language:en",
-    "signal_phrase": "english",
+    "signal_phrase": ["english"],
     "match_position": "exact",
     "action": ["stt_language:en"],
     "overlay_message": "Mode: 🇬🇧"
   },
   {
     "name": "big files",
-    "signal_phrase": "big files",
+    "signal_phrase":["big files"],
     "match_position": "start",
     "action": [],
     "template": """Use the following command to find our largest files:

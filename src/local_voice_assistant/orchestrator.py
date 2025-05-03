@@ -209,7 +209,7 @@ class Orchestrator:
         # --- Show Signal Phrases Notification (Using function from config.py) --- 
         try:
             # Call the imported function, passing the COMMANDS list from the imported config
-            signal_phrases = get_configured_signal_phrases(app_config.COMMANDS)
+            signal_phrases = get_configured_signal_phrases()
             
             if signal_phrases:
                 # Create a concise string of phrases
@@ -295,16 +295,24 @@ class Orchestrator:
         """Callback executed by HotkeyManager when Esc is pressed during PTT."""
         logger.info(f"Orchestrator: _handle_ptt_cancel called.")
         self.cancel_requested = True # Set flag for _handle_ptt_stop to check
-        if self.audio_recorder and self.audio_recorder.is_recording():
-            logger.debug("Signaling AudioRecorder to stop due to cancel request.")
-            self.audio_recorder.stop_recording()
         
-        # --- Conditionally Resume on Cancel --- 
-        if self._playback_was_paused: # If playback was paused by the corresponding start
-            logger.info("Playback was paused, resuming due to cancellation...")
-            self.playback_manager.resume()
-        self._playback_was_paused = False # Reset flag
-        # --------------------------------------
+        # Check if the recording thread tracked by Orchestrator is active
+        if self.active_recording_thread and self.active_recording_thread.is_alive():
+        # if self.audio_recorder and self.audio_recorder.is_recording(): # <-- OLD INCORRECT CHECK
+            logger.debug("Signaling AudioRecorder to stop due to cancel request.")
+            # Call stop_recording but ignore the results here, let _handle_ptt_stop handle cleanup
+            self.audio_recorder.stop_recording()
+            # Ensure playback resumes if cancel happens mid-recording
+            # --- Conditionally Resume on Cancel --- 
+            if self._playback_was_paused: # If playback was paused by the corresponding start
+                logger.info("Playback was paused, resuming due to cancellation...")
+                self.playback_manager.resume()
+            self._playback_was_paused = False # Reset flag
+            # --------------------------------------
+        else:
+             logger.debug("Cancel requested but no active recording thread found.")
+             # Reset flag even if no recording was active, just in case
+             self._playback_was_paused = False 
         
         # Notification handled by _handle_ptt_stop when it sees cancel_requested flag
 
