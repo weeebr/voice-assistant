@@ -48,10 +48,11 @@ echo "✅ Python cache cleaned."
 # 1. Ensure Virtual Environment Exists
 echo "🐍 Ensuring virtual environment '$VENV_DIR' exists..."
 if [ ! -d "$VENV_DIR" ]; then
-    echo "💨 Virtual environment not found. Creating with $PYTHON_EXEC..."
-    $PYTHON_EXEC -m venv "$VENV_DIR"
+    echo "💨 Virtual environment not found. Creating with python3..."
+    # $PYTHON_EXEC -m venv "$VENV_DIR"
+    python3 -m venv "$VENV_DIR" # Use python3 directly
     if [ $? -ne 0 ]; then
-        echo "❌ Failed to create virtual environment. Please check your Python 3 installation."
+        echo "❌ Failed to create virtual environment. Please check your Python 3 installation and ensure 'python3' is in your PATH."
         exit 1
     fi
     echo "✅ Virtual environment created."
