@@ -105,7 +105,7 @@ class MacNotification:
         if group_id is not None:
              logger.debug(f"Hide called with group_id ('{group_id}') but ignored by MacNotification.")
         else:
-             logger.debug("Hide called (notifications auto-hide)")
+            logger.debug("Hide called (notifications auto-hide)")
         pass
 
 # Global instance for singleton pattern

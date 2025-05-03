@@ -96,3 +96,4 @@ class NotificationManager:
                 logger.error(f"❌ Error hiding overlay: {e}")
         else:
             logger.debug(f"Overlay not available. Skipping hide.") 
+ 

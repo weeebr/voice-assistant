@@ -120,3 +120,4 @@ class ClipboardManager:
             logger.warning("Skipping paste because copy failed.")
             
         return copy_success and paste_success 
+ 

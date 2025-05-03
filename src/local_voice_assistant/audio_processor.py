@@ -414,3 +414,4 @@ class AudioProcessor:
                 
         logger.debug(f"Retrieved {len(phrases)} configured signal phrases to display.")
         return phrases
+ 
