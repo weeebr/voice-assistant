@@ -1,4 +1,3 @@
-- [ ] timestamps incl. analytics for transcriptions (500 words = 1 A4 page/day)
 - [ ] multi modal calls ("fusion calls")
 - [ ] NER classifications
 - [ ] bash MCP agent

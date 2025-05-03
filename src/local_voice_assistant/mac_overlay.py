@@ -43,19 +43,21 @@ class MacNotification:
              
         self._last_message = text
         logger.debug(f"Showing notification: '{text}' (Group: {group_id})")
+
+        lower_text = text.lower()
         
         try:
             # Create a more descriptive notification with emoji indicators
             emoji = "🎙️"
-            if "Processing your request" in text:
+            if "processing your request" in lower_text:
                 emoji = "⚙️"
             elif text.endswith("..."):
                 emoji = "🎙️"
-            elif "Text pasted" in text:
+            elif "pasted" in lower_text:
                 emoji = "✅"
-            elif "Recording stopped" in text:
+            elif "recording stopped" in lower_text:
                 emoji = "❌"
-            elif "language" in text or "detected" in text:
+            elif "language" in lower_text or "detected" in lower_text:
                 emoji = "🔍"
             
             message = f"{emoji} {text}"

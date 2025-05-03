@@ -80,7 +80,7 @@ def get_configured_signal_phrases():
         should_exclude = any(
             isinstance(action, str) and (
                 # Check if action starts with 'stt_language:' or contains 'chairman'
-                action.startswith('stt_language:') or 'chairman' in action
+                action.startswith('language:') or 'chairman' in action
             )
             for action in (config_data.get('action') or [])
         )

@@ -35,18 +35,17 @@ logger = logging.getLogger(__name__)
 
 # --- Transcription Logging Setup ---
 transcription_logger = logging.getLogger('TranscriptionLogger')
-transcription_logger.setLevel(logging.INFO) # Log informational messages
+transcription_logger.setLevel(logging.INFO)
 transcription_logger.propagate = False 
 try:
-    # Use 'transcriptions.log' in the current working directory (where start.sh is run from)
     log_file_path = 'transcriptions.log' 
     file_handler = logging.FileHandler(log_file_path, mode='a', encoding='utf-8')
-    # Create a simple formatter - just the message (the transcription)
-    formatter = logging.Formatter('%(message)s') 
+    # --- Use ISO 8601 format with Tab separator --- 
+    formatter = logging.Formatter('%(asctime)s\t%(message)s', datefmt='%Y-%m-%dT%H:%M:%S') 
+    # ---------------------------------------------
     file_handler.setFormatter(formatter)
-    # Add the handler to the transcription logger
     transcription_logger.addHandler(file_handler)
-    logging.info(f"📝 Transcription logging configured to file: {log_file_path}")
+    logging.info(f"📝 Transcription logging configured to file: {log_file_path} (with timestamps)")
 except Exception as e:
     logging.error(f"❌ Failed to configure transcription file logging to {log_file_path}: {e}")
     # Optionally, disable the logger or handle the error appropriately
@@ -283,7 +282,7 @@ class Orchestrator:
             if paste_successful and text_to_paste is not None:
                 logger.info(f"Attempting paste (Mode: {self.processing_mode}): '{text_to_paste[:100]}...'")
                 self.clipboard_manager.copy_and_paste(text_to_paste) # *** THE ONLY PASTE CALL ***
-                self.notification_manager.show_message(f"Pasted: {text_to_paste[:50]}...", duration=2.0)
+                self.notification_manager.show_message(f"Pasted: {text_to_paste[:50]}", duration=2.0)
                 self._last_paste_successful = True
             else:
                 # Log mode change even if nothing is pasted
@@ -330,7 +329,7 @@ class Orchestrator:
              self._playback_was_paused = False 
         
         # --- Show Cancellation Notification --- 
-        self.notification_manager.show_message("Cancelled", duration=1.0)
+        self.notification_manager.show_message("Recording stopped", duration=1.0)
         # ------------------------------------
         
         # Notification handled by _handle_ptt_stop when it sees cancel_requested flag
