@@ -17,3 +17,5 @@ numpy
 gliner
 # Add Flask for NER Service
 Flask
+# Add OpenAI client
+openai
