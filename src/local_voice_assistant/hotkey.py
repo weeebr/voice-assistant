@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 class HotkeyManager:
     """Manages the keyboard listener and detects PTT and cancel hotkeys."""
 
-    def __init__(self, ptt_keys, on_ptt_start, on_ptt_stop, on_cancel):
+    def __init__(self, ptt_keys, on_ptt_start, on_ptt_stop, on_cancel, on_ctrl_press_during_ptt):
         """Initializes the HotkeyManager.
 
         Args:
@@ -15,11 +15,13 @@ class HotkeyManager:
             on_ptt_start (callable): Function to call when PTT should start.
             on_ptt_stop (callable): Function to call when PTT should stop.
             on_cancel (callable): Function to call when PTT should be canceled.
+            on_ctrl_press_during_ptt (callable): Function to call when Ctrl is pressed while PTT is active.
         """
         self.ptt_trigger_keys = ptt_keys
         self.on_ptt_start = on_ptt_start
         self.on_ptt_stop = on_ptt_stop
         self.on_cancel = on_cancel
+        self.on_ctrl_press_during_ptt = on_ctrl_press_during_ptt
 
         self.ptt_key_held = False
         self._suppressed = False # Internal suppression state
@@ -36,11 +38,20 @@ class HotkeyManager:
             # logger.debug("HotkeyManager: Key press suppressed.")
             return True # Allow event propagation if suppressed
 
-        # --- Update Modifier State --- 
+        # --- Update Modifier State & Handle Mid-PTT Ctrl Press --- 
         if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
-            logger.debug("HotkeyManager: Ctrl key pressed.")
-            self._ctrl_held = True
-        # ---------------------------
+            if not self._ctrl_held: # Only trigger on initial press
+                 logger.debug("HotkeyManager: Ctrl key pressed.")
+                 self._ctrl_held = True
+                 # --- Call new callback if PTT is also held --- 
+                 if self.ptt_key_held:
+                     logger.info("HotkeyManager: Ctrl pressed DURING active PTT.")
+                     try:
+                         self.on_ctrl_press_during_ptt()
+                     except Exception as e:
+                          logger.exception(f"HotkeyManager: Error calling on_ctrl_press_during_ptt: {e}")
+                 # ------------------------------------------
+        # --------------------------------------------------------
 
         try:
             # PTT Key Press

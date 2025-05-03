@@ -158,7 +158,8 @@ class Orchestrator:
             ptt_keys=self.VALID_PTT_KEYS[config.get('ptt_hotkey', self.DEFAULT_PTT_KEY_NAME).lower()],
             on_ptt_start=self._handle_ptt_start,
             on_ptt_stop=self._handle_ptt_stop,
-            on_cancel=self._handle_ptt_cancel
+            on_cancel=self._handle_ptt_cancel,
+            on_ctrl_press_during_ptt=self._handle_ctrl_press_during_ptt # Pass new callback
         )
         # ---------------------------------------------------------------------
             
@@ -333,6 +334,18 @@ class Orchestrator:
         # ------------------------------------
         
         # Notification handled by _handle_ptt_stop when it sees cancel_requested flag
+
+    # --- New Callback for Ctrl press during PTT --- 
+    def _handle_ctrl_press_during_ptt(self):
+        """Called by HotkeyManager when Ctrl is pressed while PTT is active."""
+        logger.info("Orchestrator: Ctrl pressed during active recording.")
+        if not self._playback_was_paused: # Only pause if not already paused
+            logger.info("Pausing playback due to mid-recording Ctrl press...")
+            self.playback_manager.pause()
+            self._playback_was_paused = True # Set flag so resume works on PTT stop
+        else:
+            logger.debug("Playback already paused, ignoring mid-recording Ctrl press.")
+    # ----------------------------------------------
 
     # --- Suppression Mediation --- 
     def suppress_hotkeys(self, suppress: bool):

@@ -1,5 +1,3 @@
-- [ ] add LLM mode "llm" => choose default model
-- [ ] swiss german => MODE, not just current
 - [ ] timestamps incl. analytics for transcriptions (500 words = 1 A4 page/day)
 - [ ] multi modal calls ("fusion calls")
 - [ ] NER classifications
