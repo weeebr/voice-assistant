@@ -69,7 +69,8 @@ echo "✅ Virtual environment activated (`which python`)."
 
 # 3. Upgrade Pip
 echo "⏫ Upgrading pip within the virtual environment..."
-pip install --quiet --disable-pip-version-check --upgrade pip
+# Use explicit path to python within venv to run pip module
+"$VENV_DIR/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade pip 
 if [ $? -ne 0 ]; then
     echo "⚠️ Failed to upgrade pip (continuing anyway)..."
 fi
@@ -77,7 +78,8 @@ echo "✅ Pip upgrade checked."
 
 # 4. Install/Update Dependencies
 echo "📦 Installing/updating dependencies from '$REQUIREMENTS_FILE'..."
-pip install --quiet --disable-pip-version-check -r "$REQUIREMENTS_FILE"
+# Use explicit path to python within venv to run pip module
+"$VENV_DIR/bin/python" -m pip install --quiet --disable-pip-version-check -r "$REQUIREMENTS_FILE"
 if [ $? -ne 0 ]; then
     echo "❌ Failed to install dependencies from $REQUIREMENTS_FILE."
     exit 1
@@ -86,7 +88,8 @@ echo "✅ Dependencies checked/installed."
 
 # 5. Install Local Package in Editable Mode
 echo "🛠️ Ensuring local package is installed in editable mode..."
-pip install --quiet --disable-pip-version-check -e .
+# Use explicit path to python within venv to run pip module
+"$VENV_DIR/bin/python" -m pip install --quiet --disable-pip-version-check -e .
 if [ $? -ne 0 ]; then
     echo "❌ Failed to install local package in editable mode."
     exit 1
@@ -128,8 +131,8 @@ if [ ! -f "$NER_SERVICE_SCRIPT" ]; then
     echo "⚠️ NER service script '$NER_SERVICE_SCRIPT' not found. NER features will fail."
 else
     echo "   (Logs are configured via Python logging to jarvis.log)"
-    # Use 'python' which should be the venv python after activation
-    python "$NER_SERVICE_SCRIPT" & # Launch in background without shell redirection
+    # Use explicit path to python within venv
+    "$VENV_DIR/bin/python" "$NER_SERVICE_SCRIPT" & # Launch in background without shell redirection
     NER_SERVICE_PID=$! # Capture the PID of the background process
     echo "✅ NER Service started in background (PID: $NER_SERVICE_PID)."
 fi
@@ -137,12 +140,13 @@ fi
 
 # 6. Run the Main Application
 echo "▶️ Starting Main Voice Assistant (using module: $MAIN_MODULE_PATH)..."
-echo "(Running command: python -m $MAIN_MODULE_PATH $@)"
+echo "(Running command: $VENV_DIR/bin/python -m $MAIN_MODULE_PATH $@)"
 echo "-------------------------------------"
 
 # Execute the Python module directly, passing all script arguments ($@)
 # Use exec to replace the shell process with the Python process
-exec python -m "$MAIN_MODULE_PATH" "$@"
+# Use explicit path to python within venv
+exec "$VENV_DIR/bin/python" -m "$MAIN_MODULE_PATH" "$@"
 
 # Note: The script won't reach here if 'exec' is used successfully.
 echo "-------------------------------------"

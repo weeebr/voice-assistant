@@ -1,3 +1,3 @@
 - [ ] multi modal calls ("fusion calls")
-- [ ] NER classifications
+- [ ] sys prompt
 - [ ] bash MCP agent
