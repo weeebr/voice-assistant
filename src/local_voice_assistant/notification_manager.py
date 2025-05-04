@@ -3,6 +3,7 @@ import numpy as np
 import sounddevice as sd
 import threading
 import time # Potentially useful for delayed notifications later
+import os # <-- Add os import
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +11,8 @@ class NotificationManager:
     """
     Manages user notifications, including overlay messages and audio cues.
     """
-    def __init__(self, config, overlay, audio_capture):
+    def __init__(self, overlay, audio_capture):
         logger.debug("NotificationManager initializing...")
-        self.config = config
         self.overlay = overlay # Store the overlay instance
         
         # Determine sample rate for beep, falling back to a default
@@ -26,10 +26,17 @@ class NotificationManager:
         else:
             logger.warning("No AudioCapture instance provided to NotificationManager. Using default sample rate for beep.")
         
-        # Read beep configuration (optional)
-        self.beep_frequency = config.get('beep_frequency', 440)
-        self.beep_duration = config.get('beep_duration', 0.1)
-        self.beep_amplitude = config.get('beep_amplitude', 0.38)
+        # --- Read beep configuration from environment variables --- 
+        try:
+            self.beep_frequency = int(os.getenv('BEEP_FREQUENCY', '440'))
+            self.beep_duration = float(os.getenv('BEEP_DURATION', '0.1'))
+            self.beep_amplitude = float(os.getenv('BEEP_AMPLITUDE', '0.38'))
+        except ValueError:
+            logger.warning("Invalid numeric value for BEEP_* env vars. Using defaults.")
+            self.beep_frequency = 440
+            self.beep_duration = 0.1
+            self.beep_amplitude = 0.38
+        # --------------------------------------------------------
         
         logger.info(f"✅ NotificationManager initialized. Overlay enabled: {self.overlay is not None}")
 

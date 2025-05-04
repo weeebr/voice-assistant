@@ -130,7 +130,7 @@ echo "🧠 Starting background NER Service..."
 if [ ! -f "$NER_SERVICE_SCRIPT" ]; then
     echo "⚠️ NER service script '$NER_SERVICE_SCRIPT' not found. NER features will fail."
 else
-    echo "   (Logs are configured via Python logging to jarvis.log)"
+    echo "   (Logs are configured via Python logging to last_run.log)"
     # Use explicit path to python within venv
     "$VENV_DIR/bin/python" "$NER_SERVICE_SCRIPT" & # Launch in background without shell redirection
     NER_SERVICE_PID=$! # Capture the PID of the background process

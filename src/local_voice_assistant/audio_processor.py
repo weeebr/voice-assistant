@@ -35,15 +35,24 @@ class AudioProcessor:
     - State updates (translation mode, STT hints)
     - Interaction with overlay and clipboard
     """
-    def __init__(self, stt, config, notification_manager, clipboard_manager, llm_client, ner_service_client, transcription_logger):
+    def __init__(self,
+                 stt: SpeechToText,
+                 notification_manager: NotificationManager,
+                 clipboard_manager: ClipboardManager,
+                 llm_client: LLMClient,
+                 ner_service_client: NERServiceClient,
+                 transcription_logger,
+                 initial_language: str # Add initial language param
+                 ):
         logger.debug("AudioProcessor initializing...")
         self.stt = stt
-        self.config = config
         self.notification_manager = notification_manager
         self.clipboard_manager = clipboard_manager
         self.llm_client = llm_client
         self.ner_service_client = ner_service_client
         self.transcription_logger = transcription_logger
+        self.default_stt_language = initial_language.split('-')[0] if initial_language else 'en' # Store default 2-letter code
+        logger.info(f"AudioProcessor initialized with default STT language: {self.default_stt_language}")
         self.signal_configs = []
         
         # --- Load Signal Config --- 
@@ -68,7 +77,6 @@ class AudioProcessor:
 
         # <<< Initialize ActionExecutor >>>
         self.action_executor = ActionExecutor(
-            config=self.config, # Pass overall config if needed by executor
             llm_client=self.llm_client,
             ner_service_client=self.ner_service_client,
             clipboard_manager=self.clipboard_manager,
@@ -133,18 +141,17 @@ class AudioProcessor:
         signal_match_found = False
 
         try:
-            # --- Determine STT Hint for THIS run --- 
-            # Use a different variable for the hint *for this run*
+            # --- Determine STT Hint for THIS run (Use stored default) --- 
             hint_for_this_run = current_stt_hint # Start with hint passed from Orchestrator state
-            default_stt_lang = self.config.get('language', 'en').split('-')[0]
-            if hint_for_this_run:
-                logger.info(f"🎙️ Using STT language hint for this run: '{hint_for_this_run}' (requested by previous command)")
-                # DO NOT reset new_stt_hint here. Orchestrator will reset its state *after* getting results.
-                # new_stt_hint = None # <--- REMOVED BUG
-            else:
-                hint_for_this_run = default_stt_lang # Use default if no hint was set for this run
+            # Use the default stored in __init__ instead of reading config
+            # default_stt_lang = self.config.get('language', 'en').split('-')[0] # <-- REMOVE config read
+            if not hint_for_this_run: # If no hint was set for *this* specific run
+                hint_for_this_run = self.default_stt_language # Use the instance default
             
-            # --- Main Segment Processing Loop (Use determined hint_for_this_run) ---
+            logger.info(f"🎙️ Using STT language hint for this run: '{hint_for_this_run}'")
+            # ----------------------------------------------------------
+            
+            # --- Main Segment Processing Loop --- 
             logger.debug(f"Attempting STT with language hint: {hint_for_this_run}")
             segment_generator = self.stt.transcribe(frames, language=hint_for_this_run)
 
@@ -201,69 +208,59 @@ class AudioProcessor:
                     }
                     parsed_actions = parse_actions(action_config_list)
                     
-                    # <<< Call ActionExecutor >>>
-                    text_to_paste, paste_successful, new_processing_mode, new_stt_hint = \
-                        self.action_executor.execute_actions(
-                            parsed_actions=parsed_actions,
-                            context=context,
-                            chosen_signal_config=chosen_signal_config,
-                            current_processing_mode=current_processing_mode,
-                            current_stt_hint=current_stt_hint
-                        )
-                    # <<< REMOVE Action Execution Loop and Logic >>>
-                    # --------------------------------------------
-                        
-                else:
-                    # --- 2b. No Signal Matched: Re-introduce Default Mode Logic --- 
-                    logger.info(f"🚫 No signal detected. Applying default behavior for mode: {current_processing_mode}")
+                    # Use the correct method name: execute_actions
+                    action_results = self.action_executor.execute_actions(parsed_actions, context, chosen_signal_config)
                     
-                    # Reset vars for this path (ActionExecutor didn't run)
-                    text_to_paste = None 
-                    paste_successful = False 
-                    
-                    # Apply default logic based on mode
-                    if current_processing_mode == 'de-CH':
-                        # Find the config for de-CH mode to get template/model
-                        # This assumes a command named "mode:de-CH" exists in config.py
-                        ch_config = self.commands_by_name.get("mode:de-CH") 
-                        if ch_config and ch_config.get('template'):
-                             logger.info("🇨🇭 Mode = de-CH. Calling LLM with specific config...")
-                             template = ch_config.get('template')
-                             model_override = ch_config.get('llm_model_override')
-                             # Note: Default modes might not have access to clipboard context easily
-                             context = {'text': final_full_sanitized_text, 'clipboard': ''} 
-                             try:
-                                 prompt = template.format(**context)
-                                 text_to_paste = self.llm_client.transform_text(prompt, self.notification_manager, model_override=model_override)
-                             except Exception as e:
-                                 logger.exception("💥 Error formatting/calling LLM for de-CH mode")
-                        else:
-                             logger.error("❌ Could not find config or template for 'mode:de-CH' to apply default behavior.")
-                             
-                    elif current_processing_mode == 'llm':
-                        logger.info("🧠 Mode = llm. Sending text to default LLM chat...")
-                        try:
-                            prompt_for_llm = f"User said: {final_full_sanitized_text}" 
-                            text_to_paste = self.llm_client.transform_text(
-                                prompt_for_llm,
-                                notification_manager=self.notification_manager
-                            )
-                        except Exception as e:
-                            logger.exception("💥 LLM Error during llm mode processing")
-                            
-                    else: # Default "Normal" Mode (Passthrough)
-                        if current_processing_mode != 'normal':
-                             logger.warning(f"Unknown processing mode '{current_processing_mode}'. Defaulting to normal passthrough.")
-                        logger.info(" Mode = normal (Default). Passing through text.")
-                        text_to_paste = final_full_sanitized_text
+                    # Update state based on action results
+                    new_processing_mode = action_results.get('new_mode', new_processing_mode)
+                    new_stt_hint = action_results.get('new_stt_hint', new_stt_hint)
+                    text_to_paste = action_results.get('text_to_paste', text_to_paste)
+                    paste_successful = action_results.get('paste_successful', paste_successful)
+                    # --- Update language action flag ---
+                    only_language_action = action_results.get('only_language_action', False)
+                    # -----------------------------------
 
-                    # Determine success for default modes
-                    if text_to_paste is not None and text_to_paste != "": paste_successful = True
-                    logger.debug(f"[DEBUG] Default Mode Handler: paste_successful={paste_successful}")
-                    # Mode/Hint remain unchanged if no signal matched
-                    new_processing_mode = current_processing_mode
-                    new_stt_hint = current_stt_hint 
-                    # --- END Re-introduced Default Mode Logic ---
+                else:
+                    # --- 2b. No Signal Match: Process based on current_processing_mode --- 
+                    if current_processing_mode == 'normal':
+                        logger.info("No signal detected, mode is 'normal'. Pasting raw text.")
+                        text_to_paste = final_full_sanitized_text
+                        paste_successful = True # Assume success if pasting raw text
+                    elif current_processing_mode == 'llm':
+                        logger.info("No signal detected, mode is 'llm'. Sending to default LLM.")
+                        self.notification_manager.show_message("🧠 Sending to LLM...")
+                        # Use llm_client.transform_text directly (no specific template)
+                        transformed_text = self.llm_client.transform_text(
+                            prompt=final_full_sanitized_text,
+                            notification_manager=self.notification_manager
+                        )
+                        text_to_paste = transformed_text
+                        paste_successful = text_to_paste is not None
+                    elif current_processing_mode == 'de-CH':
+                        logger.info("No signal detected, mode is 'de-CH'. Using translation template.")
+                        self.notification_manager.show_message("🇨🇭 Translating...")
+                        # Retrieve the specific command config for 'de-CH'
+                        translation_command_config = self.commands_by_name.get('mode:de-CH')
+                        if translation_command_config and translation_command_config.get('template'):
+                            context = {'text': final_full_sanitized_text}
+                            prompt = translation_command_config['template'].format(**context)
+                            model_override = translation_command_config.get('llm_model_override')
+                            transformed_text = self.llm_client.transform_text(
+                                prompt=prompt,
+                                notification_manager=self.notification_manager,
+                                model_override=model_override
+                            )
+                            text_to_paste = transformed_text
+                            paste_successful = text_to_paste is not None
+                        else:
+                            logger.error("Could not find 'mode:de-CH' command config or template for translation.")
+                            text_to_paste = f"Error: Config for mode '{current_processing_mode}' missing."
+                            paste_successful = False
+                    else:
+                        logger.warning(f"Unknown processing mode '{current_processing_mode}' and no signal matched.")
+                        text_to_paste = f"Error: Unknown mode '{current_processing_mode}'"
+                        paste_successful = False
+                        new_processing_mode = default_processing_mode # Revert to default on error
 
             # else: final_full_sanitized_text was empty or filtered out
                      

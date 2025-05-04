@@ -4,9 +4,26 @@ import sys
 from flask import Flask, request, jsonify
 import torch # Import torch
 import logging.handlers # Import handlers
+import warnings # <-- Import warnings module
+
+# --- Suppress specific UserWarning from transformers --- 
+warnings.filterwarnings(
+    "ignore", 
+    message="The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option.*", 
+    category=UserWarning, 
+    module="transformers.convert_slow_tokenizer"
+)
+# --- Suppress Semaphore Leak Warning --- 
+warnings.filterwarnings(
+    "ignore", 
+    message="resource_tracker: There appear to be.*leaked semaphore objects.*", 
+    category=UserWarning
+    # module="multiprocessing.resource_tracker" # Optionally add module for more specificity
+)
+# ------------------------------------------------------
 
 # --- Shared Logging Configuration (Match cli.py) ---
-LOG_FILENAME = 'jarvis.log' # Log file in the root directory
+LOG_FILENAME = 'last_run.log' # Log file in the root directory
 LOG_FORMAT = "%(asctime)s [%(levelname)-7s] %(name)s: %(message)s"
 LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 # -----------------------------------------------------

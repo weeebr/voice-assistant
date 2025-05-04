@@ -31,8 +31,18 @@ COMMANDS = [
     "signal_phrase": "llm",
     "match_position": "exact",
     "action": ["mode:llm"],
+    "template": "{text}:\n\n{clipboard}",
     "overlay_message": "Mode: 🧠 LLM"
   },
+  {
+    "name": "template:gogo",
+    "signal_phrase": ["bake it"],
+    "match_position": "start",
+    "action": ["process_template"],
+    "template": """Use the following command to check our project structure:
+`tree -L 4 -I 'venv|__pycache__|*.log|*.pyc|.git*|.DS_Store' | cat`.
+
+Then, continue with your given task: {clipboard}"""},
   {
     "name": "template:big_files",
     "signal_phrase": "big files",

@@ -46,13 +46,12 @@ class LLMClient:
     }
     # ----------------------------------------------------
 
-    def __init__(self, config):
-        """Initializes the LLM clients based on configuration and API keys."""
-        self.config = config
-        self.provider = config.get('llm_provider', 'openai').lower() # Default configured provider
+    def __init__(self, default_provider: str):
+        """Initializes the LLM clients based on API keys and default provider."""
+        self.provider = default_provider.lower() # Use passed default provider
         self._anthropic_client = None
         self._google_client_module = None
-        self._openai_client = None # <-- Added OpenAI client instance variable
+        self._openai_client = None
 
         # Initialize Anthropic client (if available and key set)
         if ANTHROPIC_AVAILABLE:
@@ -277,13 +276,23 @@ class LLMClient:
         # -----------------------
         logger.debug(f"Sending prompt to Anthropic Claude (Model: {model_id}): '{prompt[:100]}...'")
         try:
+            # --- Get settings from environment variables with defaults ---
+            try:
+                max_tokens = int(os.getenv('ANTHROPIC_MAX_TOKENS', '1000'))
+                temperature = float(os.getenv('ANTHROPIC_TEMPERATURE', '0.7'))
+            except ValueError:
+                logger.warning("Invalid numeric value for ANTHROPIC_MAX_TOKENS or ANTHROPIC_TEMPERATURE env var. Using defaults.")
+                max_tokens = 1000
+                temperature = 0.7
+            # ------------------------------------------------------------
+            logger.debug(f"Anthropic params: max_tokens={max_tokens}, temperature={temperature}")
+
             messages = [{"role": "user", "content": prompt}]
-            # Use the stored client instance directly
             completion = self._anthropic_client.messages.create(
-                model=model_id, 
-                max_tokens=self.config.get('anthropic_max_tokens', 1000), # Make max_tokens configurable
+                model=model_id,
+                max_tokens=max_tokens, # Use value from env var or default
                 messages=messages,
-                temperature=self.config.get('anthropic_temperature', 0.7), # Make temperature configurable
+                temperature=temperature, # Use value from env var or default
             )
             
             # Response handling (same as before)
@@ -319,12 +328,23 @@ class LLMClient:
         # -----------------------
         logger.debug(f"Sending prompt to OpenAI GPT (Model: {model_id}): '{prompt[:100]}...'")
         try:
+            # --- Get settings from environment variables with defaults ---
+            try:
+                max_tokens = int(os.getenv('OPENAI_MAX_TOKENS', '1000'))
+                temperature = float(os.getenv('OPENAI_TEMPERATURE', '0.7'))
+            except ValueError:
+                logger.warning("Invalid numeric value for OPENAI_MAX_TOKENS or OPENAI_TEMPERATURE env var. Using defaults.")
+                max_tokens = 1000
+                temperature = 0.7
+            # ------------------------------------------------------------
+            logger.debug(f"OpenAI params: max_tokens={max_tokens}, temperature={temperature}")
+
             messages = [{"role": "user", "content": prompt}]
             completion = self._openai_client.chat.completions.create(
-                model=model_id, 
+                model=model_id,
                 messages=messages,
-                max_tokens=self.config.get('openai_max_tokens', 1000), # Make configurable
-                temperature=self.config.get('openai_temperature', 0.7), # Make configurable
+                max_tokens=max_tokens, # Use value from env var or default
+                temperature=temperature, # Use value from env var or default
             )
             
             if completion.choices and len(completion.choices) > 0 and completion.choices[0].message:
