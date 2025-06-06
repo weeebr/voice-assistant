@@ -1,0 +1,465 @@
+import React from "react";
+import {
+  CheckSquare,
+  Code,
+  FileCode,
+  PanelLeft,
+  Layers,
+  RefreshCw,
+  Shield,
+  Workflow,
+  Zap,
+  Layout,
+  AlertTriangle,
+  Verified,
+  Eye,
+  Paintbrush,
+  Bug,
+  BookText,
+} from "lucide-react";
+
+export type Category =
+  | "file structure"
+  | "error types"
+  | "design"
+  | "project setup"
+  | "writing style"
+  | "cleanup";
+
+export interface InstructionVariant {
+  instruction: string;
+  tooltip?: string;
+}
+
+export interface AtomicInstruction {
+  title: string;
+  icon: React.ReactNode;
+  variants: InstructionVariant[];
+}
+
+export interface CategoryInstructions {
+  name: Category;
+  instructions: AtomicInstruction[];
+}
+
+// Define placeholder categories for non-coding modes
+export const writingCategoryInstructions: CategoryInstructions[] = [
+  {
+    name: "writing style",
+    instructions: [
+      {
+        title: "formal",
+        icon: <BookText size={14} />,
+        variants: [
+          {
+            instruction:
+              "Write in a formal, professional tone appropriate for business or academic contexts.",
+            tooltip: "Creates a formal, professional writing style",
+          },
+        ],
+      },
+      {
+        title: "conversational",
+        icon: <BookText size={14} />,
+        variants: [
+          {
+            instruction:
+              "Write in a friendly, conversational tone that feels approachable and casual.",
+            tooltip: "Creates a friendly, conversational writing style",
+          },
+        ],
+      },
+    ],
+  },
+];
+
+export const codingCategoryInstructions: CategoryInstructions[] = [
+  {
+    name: "file structure",
+    instructions: [
+      {
+        title: "organize files",
+        icon: <Layers size={14} />,
+        variants: [
+          {
+            instruction:
+              "ALWAYS enforce to have files consolidated and organized.",
+            tooltip: "Ensures files are well organized and consolidated",
+          },
+        ],
+      },
+      {
+        title: "flat structure",
+        icon: <Layout size={14} />,
+        variants: [
+          {
+            instruction:
+              "Keep the project structure flat and organized according to best practises of the current tech stack.",
+            tooltip: "Maintains a clean, flat project structure",
+          },
+        ],
+      },
+      {
+        title: "minimize codebase",
+        icon: <Code size={14} />,
+        variants: [
+          {
+            instruction: "ALWAYS aim for the smallest possible codebase.",
+            tooltip: "Reduces codebase size and complexity",
+          },
+        ],
+      },
+      {
+        title: "file size",
+        icon: <FileCode size={14} />,
+        variants: [
+          {
+            instruction: "NEVER have files with more than 300 lines of code.",
+            tooltip: "Keeps file sizes manageable",
+          },
+        ],
+      },
+      {
+        title: "centralize logic",
+        icon: <PanelLeft size={14} />,
+        variants: [
+          {
+            instruction:
+              "strictly enforce central logic whereever possible. NEVER have any DRY code violations in any file.",
+            tooltip: "Ensures code is not duplicated across files",
+          },
+        ],
+      },
+
+      {
+        title: "structure integrity",
+        icon: <Layout size={14} />,
+        variants: [
+          {
+            instruction: "violations to project structure integrity",
+            tooltip: "Maintains consistent project structure",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "error types",
+    instructions: [
+      {
+        title: "build errors",
+        icon: <Bug size={14} />,
+        variants: [
+          {
+            instruction:
+              "Build-time errors (webpack, express, typescript, lint)",
+            tooltip: "Handles common build-time errors",
+          },
+        ],
+      },
+      {
+        title: "performance issues",
+        icon: <Zap size={14} />,
+        variants: [
+          {
+            instruction: "Performance violations (FPS, memory, load time)",
+            tooltip: "Addresses performance bottlenecks",
+          },
+        ],
+      },
+      {
+        title: "runtime errors",
+        icon: <AlertTriangle size={14} />,
+        variants: [
+          {
+            instruction: "Runtime errors (console, uncaught, network)",
+            tooltip: "Prevents common runtime errors",
+          },
+        ],
+      },
+      {
+        title: "test failures",
+        icon: <AlertTriangle size={14} />,
+        variants: [
+          {
+            instruction:
+              "Test failures (unit, integration, E2E, component rendering)",
+            tooltip: "Addresses common test failures",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "design",
+    instructions: [
+      {
+        title: "UI-first",
+        icon: <Paintbrush size={14} />,
+        variants: [
+          {
+            instruction:
+              "aims for UI-first development, ensuring each step starts by creating mockups and a minimal design for it.",
+            tooltip: "Ensures UI is designed before implementation",
+          },
+        ],
+      },
+      {
+        title: "redesign",
+        icon: <Paintbrush size={14} />,
+        variants: [
+          {
+            instruction:
+              "completely rethink our application with a mobile first approach in mind and by radically throwing the current design to the trash.",
+            tooltip: "Ensures UI is designed before implementation",
+          },
+        ],
+      },
+      {
+        title: "premium UX",
+        icon: <Eye size={14} />,
+        variants: [
+          {
+            instruction:
+              "creates a visually stunning and emotionally engaging user experience that feels clean, vibrant, and premium from the moment the app opens.",
+            tooltip: "Creates a premium user experience",
+          },
+        ],
+      },
+      {
+        title: "reduced re-renders",
+        icon: <Eye size={14} />,
+        variants: [
+          {
+            instruction: "ALWAYS aim for reduced re-renders.",
+            tooltip: "Creates a premium user experience",
+          },
+        ],
+      },
+      {
+        title: "optimistic UI updates",
+        icon: <Eye size={14} />,
+        variants: [
+          {
+            instruction:
+              "ALL components are optimized for optimistic UI updates",
+            tooltip: "Creates a premium user experience",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "project setup",
+    instructions: [
+      {
+        title: "parallel editing",
+        icon: <PanelLeft size={14} />,
+        variants: [
+          {
+            instruction:
+              "ALWAYS create a parallel edit plan to fix issues if doable with high confidence",
+            tooltip: "Creates efficient editing plans",
+          },
+        ],
+      },
+      {
+        title: "retest changes",
+        icon: <RefreshCw size={14} />,
+        variants: [
+          {
+            instruction:
+              "ALWAYS re-run 'yarn test' once finished with resolving all issues.",
+            tooltip: "Verifies changes with tests",
+          },
+        ],
+      },
+      {
+        title: "verify fixes",
+        icon: <CheckSquare size={14} />,
+        variants: [
+          {
+            instruction:
+              "ALWAYS re-verify and ensure the issue is really resolved, NEVER just assume so.",
+            tooltip: "Double-checks all issue resolutions",
+          },
+        ],
+      },
+      {
+        title: "test lint",
+        icon: <Verified size={14} />,
+        variants: [
+          {
+            instruction: "ALWAYS test and lint your changes when finished.",
+            tooltip: "Tests and lints before completion",
+          },
+        ],
+      },
+      {
+        title: "verify changes",
+        icon: <CheckSquare size={14} />,
+        variants: [
+          {
+            instruction:
+              "after having finished a given task successfully, the LLM always ensures all new changes work as expected.",
+            tooltip: "Verifies all changes work as expected",
+          },
+        ],
+      },
+      {
+        title: "fast testing",
+        icon: <Zap size={14} />,
+        variants: [
+          {
+            instruction: "ensures max speed of debugging and testing.",
+            tooltip: "Maximizes testing efficiency",
+          },
+        ],
+      },
+      {
+        title: "optimization tools",
+        icon: <Workflow size={14} />,
+        variants: [
+          {
+            instruction:
+              "instructs to add smart, optimized techniques, workflows or helpers, most efficient and useful for auto-detection and resolution of issues. Think of test watchers, linting, etc.",
+            tooltip: "Adds optimized development tools",
+          },
+        ],
+      },
+      {
+        title: "nested roadmap",
+        icon: <Workflow size={14} />,
+        variants: [
+          {
+            instruction:
+              "it includes a nested roadmap in markdown using [ ], ordered in a UI- and MVP-first way with smallest possible increments of features, while ensuring to be achieve our goal in the quickest possible way.",
+            tooltip: "Creates organized development roadmaps",
+          },
+        ],
+      },
+      {
+        title: "prioritize issues",
+        icon: <Workflow size={14} />,
+        variants: [
+          {
+            instruction:
+              "then review issues and categorize them by type and impact. Order it from most easy to fix > self-contained within 1 file > critical",
+            tooltip: "Prioritizes issues efficiently",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "cleanup",
+    instructions: [
+      {
+        title: "preserve logic",
+        icon: <Shield size={14} />,
+        variants: [
+          {
+            instruction:
+              "If we have remaining issues, resolve them BUT never break existing logic.",
+            tooltip: "Preserves existing functionality",
+          },
+        ],
+      },
+      {
+        title: "preserve functionality",
+        icon: <Shield size={14} />,
+        variants: [
+          {
+            instruction: "NEVER break existing logic",
+            tooltip: "Maintains existing functionality",
+          },
+        ],
+      },
+      {
+        title: "remove deadcode",
+        icon: <Code size={14} />,
+        variants: [
+          {
+            instruction:
+              "Remove unused code - imports, variables, functions, full files etc.",
+            tooltip: "Removes unused code",
+          },
+        ],
+      },
+      {
+        title: "avoid duplication",
+        icon: <FileCode size={14} />,
+        variants: [
+          {
+            instruction: "duplicate logic/components/files",
+            tooltip: "Prevents code duplication",
+          },
+        ],
+      },
+      {
+        title: "no comments",
+        icon: <Code size={14} />,
+        variants: [
+          {
+            instruction:
+              "ensures no comments or documentation EVER gets added.",
+            tooltip: "Keeps code clean without comments",
+          },
+        ],
+      },
+      {
+        title: "minimize errors",
+        icon: <Shield size={14} />,
+        variants: [
+          {
+            instruction: "ensures the least amount of errors the LLM can make.",
+            tooltip: "Minimizes potential errors",
+          },
+        ],
+      },
+      {
+        title: "robust app",
+        icon: <Shield size={14} />,
+        variants: [
+          {
+            instruction: "the web app ends up being error-free and robust.",
+            tooltip: "Ensures robust app functionality",
+          },
+        ],
+      },
+    ],
+  },
+];
+
+// Placeholder empty categories for other modes
+export const conversationCategoryInstructions: CategoryInstructions[] = [];
+export const creativeCategoryInstructions: CategoryInstructions[] = [];
+
+// Define different prompt modes
+export type PromptMode = "coding" | "writing" | "conversation" | "creative";
+
+export interface PromptModeOption {
+  id: PromptMode;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+  color: string;
+}
+
+// Get the current categories based on selected mode
+export const getCategoriesForMode = (
+  selectedMode: PromptMode
+): CategoryInstructions[] => {
+  switch (selectedMode) {
+    case "coding":
+      return codingCategoryInstructions;
+    case "writing":
+      return writingCategoryInstructions;
+    case "conversation":
+      return conversationCategoryInstructions;
+    case "creative":
+      return creativeCategoryInstructions;
+    default:
+      return [];
+  }
+};

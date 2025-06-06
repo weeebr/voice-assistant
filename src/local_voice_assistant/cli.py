@@ -86,6 +86,7 @@ def main():
     )
     # Remove --config argument
     # parser.add_argument('--config', type=str, default='config.yaml', help='Path to config.yaml')
+    parser.add_argument('--ner', action='store_true', help='Enable NER service and client')
     args = parser.parse_args()
     logger.debug(f"Parsed arguments: {args}")
 
@@ -158,7 +159,7 @@ def main():
             llm_provider=llm_provider,
             ptt_hotkey=ptt_hotkey,
             min_ptt_duration=min_ptt_duration,
-            ner_service_url=ner_service_url
+            ner_service_url=ner_service_url if args.ner else None
             # Pass other specific configs if needed (e.g., tokens, temp)
         )
         logger.info("Starting Orchestrator background tasks...")

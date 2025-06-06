@@ -40,9 +40,10 @@ class AudioProcessor:
                  notification_manager: NotificationManager,
                  clipboard_manager: ClipboardManager,
                  llm_client: LLMClient,
-                 ner_service_client: NERServiceClient,
-                 transcription_logger,
-                 initial_language: str # Add initial language param
+                 ner_service_client: NERServiceClient = None,
+                 transcription_logger=None,
+                 initial_language: str = None,
+                 sample_rate: int = 16000
                  ):
         logger.debug("AudioProcessor initializing...")
         self.stt = stt
@@ -85,22 +86,30 @@ class AudioProcessor:
         # ------------------------------
         logger.debug("AudioProcessor initialized.")
 
-    def process_audio(self, frames, current_processing_mode, current_stt_hint, default_processing_mode):
+    def process_audio(
+        self,
+        frames,
+        current_processing_mode,
+        current_stt_hint,
+        default_processing_mode,
+        original_frames=None  # Add parameter for original frames
+    ):
         """
-        Processes recorded audio frames based on signal words and current mode.
-        
+        Process audio frames and return results.
+
         Args:
-            frames: A list of audio frames.
-            current_processing_mode: The current processing mode ('normal', 'llm', 'de-CH').
-            current_stt_hint: The current STT language hint for the next run.
-            default_processing_mode: The system's default processing mode (e.g., 'llm').
+            frames: Audio frames to process
+            current_processing_mode: Current processing mode
+            current_stt_hint: Current STT language hint
+            default_processing_mode: Default processing mode
+            original_frames: Original audio frames for potential re-running STT
 
         Returns:
-            A dictionary containing processing results:
+            Dict containing:
             {
-                'text_to_paste': str | None,
+                'text_to_paste': str or None,
                 'new_processing_mode': str,
-                'new_stt_hint': str | None,
+                'new_stt_hint': str or None,
                 'paste_successful': bool
             }
         """
@@ -178,26 +187,25 @@ class AudioProcessor:
                 self.transcription_logger.info(final_full_sanitized_text)
             # --- End logging ---
 
-            final_text_check = final_full_sanitized_text.lower().translate(str.maketrans('', '', string.punctuation)).strip()
-
-            # --- Initial Filtering --- 
-            if final_text_check == "you" or final_text_check == "thank you":
-                logger.info("🙅‍♀️ Detected only filter words, skipping.")
-                text_to_paste = None # Ensure nothing is pasted
-            
+            # --- Apply output cleaning for filter phrases ---
+            cleaned_text = self.clipboard_manager.clean_output_text(final_full_sanitized_text)
+            if not cleaned_text:
+                logger.info("🙅‍♀️ Detected only filter words or empty after cleaning, skipping.")
+                text_to_paste = None
             # --- Main Processing Logic --- 
-            elif final_full_sanitized_text:
+            elif cleaned_text:
                 # --- 1. Check for Signal Word Match using new function --- 
                 chosen_signal_config, text_for_signal_handler = find_matching_signal(
-                    final_full_sanitized_text,
+                    cleaned_text,
                     self.signal_configs
                 )
+                logger.debug(f"[DEBUG] Signal detection: chosen_signal_config={chosen_signal_config}, text_for_signal_handler='{text_for_signal_handler}'")
                 signal_match_found = chosen_signal_config is not None
                 # <<< REMOVE signal detection loop >>>
                 # ----------------------------------------------------------
-                
                 # --- 2. Process Based on Match or Mode --- 
                 if signal_match_found:
+                    logger.debug(f"[DEBUG] Before actions: text_for_signal_handler='{text_for_signal_handler}'")
                     # --- 2a. Signal Matched: Parse and Execute Actions --- 
                     overlay_msg = chosen_signal_config.get('overlay_message', "Processing signal...")
                     self.notification_manager.show_message(overlay_msg)
@@ -207,42 +215,150 @@ class AudioProcessor:
                         'clipboard': self.clipboard_manager.get_content() or ""
                     }
                     parsed_actions = parse_actions(action_config_list)
-                    
                     # Use the correct method name: execute_actions
                     action_results = self.action_executor.execute_actions(parsed_actions, context, chosen_signal_config)
+                    logger.debug(f"[DEBUG] After actions: text_for_signal_handler='{text_for_signal_handler}', action_results={action_results}")
                     
-                    # Update state based on action results
+                    # --- Get new state for THIS run ---
                     new_processing_mode = action_results.get('new_mode', new_processing_mode)
                     new_stt_hint = action_results.get('new_stt_hint', new_stt_hint)
-                    text_to_paste = action_results.get('text_to_paste', text_to_paste)
-                    paste_successful = action_results.get('paste_successful', paste_successful)
-                    # --- Update language action flag ---
                     only_language_action = action_results.get('only_language_action', False)
-                    # -----------------------------------
-
+                    
+                    # --- If we have a new hint, re-run STT immediately ---
+                    if new_stt_hint and new_stt_hint != current_stt_hint:
+                        logger.info(f"🔄 Re-running STT with new hint: '{new_stt_hint}'")
+                        try:
+                            # Re-run STT on the original frames with the new hint
+                            segment_generator = self.stt.transcribe(frames, language=new_stt_hint)
+                            all_segments = []
+                            for segment in segment_generator:
+                                all_segments.append(segment)
+                            
+                            # Get the full text with new hint
+                            full_text = " ".join(segment.text.strip() for segment in all_segments)
+                            logger.info(f"📝 Re-transcribed with new hint: '{full_text}'")
+                            
+                            # Always strip the signal word from the re-transcribed text
+                            signal_word = chosen_signal_config.get('signal_phrase', [''])[0].lower()
+                            signal_pos = full_text.lower().find(signal_word)
+                            if signal_pos != -1:
+                                # Get text after signal word and clean it
+                                remainder_text = full_text[signal_pos + len(signal_word):].strip()
+                                # Remove any leading punctuation or whitespace
+                                remainder_text = remainder_text.lstrip(',.?!;: ')
+                                logger.info(f"📝 After stripping signal word: '{remainder_text}'")
+                                cleaned_text = self.clipboard_manager.clean_output_text(remainder_text)
+                            else:
+                                # If signal word not found in re-transcribed text, use original text
+                                logger.warning(f"Signal word '{signal_word}' not found in re-transcribed text, using original text")
+                                cleaned_text = self.clipboard_manager.clean_output_text(full_text.strip())
+                            
+                            if cleaned_text:
+                                if new_processing_mode == 'normal':
+                                    text_to_paste = cleaned_text
+                                    paste_successful = True
+                                elif new_processing_mode == 'llm':
+                                    self.notification_manager.show_message("🧠 Sending to LLM...")
+                                    transformed_text = self.llm_client.transform_text(
+                                        prompt=cleaned_text,
+                                        notification_manager=self.notification_manager
+                                    )
+                                    text_to_paste = transformed_text
+                                    paste_successful = text_to_paste is not None
+                                elif new_processing_mode == 'de-CH':
+                                    self.notification_manager.show_message("🇨🇭 Translating...")
+                                    translation_command_config = self.commands_by_name.get('mode:de-CH')
+                                    if translation_command_config and translation_command_config.get('template'):
+                                        context = {'text': cleaned_text}
+                                        prompt = translation_command_config['template'].format(**context)
+                                        model_override = translation_command_config.get('llm_model_override')
+                                        transformed_text = self.llm_client.transform_text(
+                                            prompt=prompt,
+                                            notification_manager=self.notification_manager,
+                                            model_override=model_override
+                                        )
+                                        text_to_paste = transformed_text
+                                        paste_successful = text_to_paste is not None
+                                    else:
+                                        logger.error("Could not find 'mode:de-CH' command config or template for translation.")
+                                        text_to_paste = f"Error: Config for mode '{new_processing_mode}' missing."
+                                        paste_successful = False
+                                else:
+                                    logger.warning(f"Unknown processing mode '{new_processing_mode}'.")
+                                    text_to_paste = f"Error: Unknown mode '{new_processing_mode}'"
+                                    paste_successful = False
+                            else:
+                                logger.info("🙅‍♀️ No text after cleaning, skipping output.")
+                                text_to_paste = None
+                                paste_successful = False
+                        except Exception as e:
+                            logger.error(f"Failed to re-run STT with new hint: {e}")
+                            text_to_paste = None
+                            paste_successful = False
+                    else:
+                        # No new hint, process as before
+                        if text_for_signal_handler:
+                            cleaned_text = self.clipboard_manager.clean_output_text(text_for_signal_handler.strip())
+                            if cleaned_text:
+                                if new_processing_mode == 'normal':
+                                    text_to_paste = cleaned_text
+                                    paste_successful = True
+                                elif new_processing_mode == 'llm':
+                                    self.notification_manager.show_message("🧠 Sending to LLM...")
+                                    transformed_text = self.llm_client.transform_text(
+                                        prompt=cleaned_text,
+                                        notification_manager=self.notification_manager
+                                    )
+                                    text_to_paste = transformed_text
+                                    paste_successful = text_to_paste is not None
+                                elif new_processing_mode == 'de-CH':
+                                    self.notification_manager.show_message("🇨🇭 Translating...")
+                                    translation_command_config = self.commands_by_name.get('mode:de-CH')
+                                    if translation_command_config and translation_command_config.get('template'):
+                                        context = {'text': cleaned_text}
+                                        prompt = translation_command_config['template'].format(**context)
+                                        model_override = translation_command_config.get('llm_model_override')
+                                        transformed_text = self.llm_client.transform_text(
+                                            prompt=prompt,
+                                            notification_manager=self.notification_manager,
+                                            model_override=model_override
+                                        )
+                                        text_to_paste = transformed_text
+                                        paste_successful = text_to_paste is not None
+                                    else:
+                                        logger.error("Could not find 'mode:de-CH' command config or template for translation.")
+                                        text_to_paste = f"Error: Config for mode '{new_processing_mode}' missing."
+                                        paste_successful = False
+                                else:
+                                    logger.warning(f"Unknown processing mode '{new_processing_mode}'.")
+                                    text_to_paste = f"Error: Unknown mode '{new_processing_mode}'"
+                                    paste_successful = False
+                            else:
+                                logger.info("🙅‍♀️ No text after cleaning, skipping output.")
+                                text_to_paste = None
+                                paste_successful = False
+                        else:
+                            logger.info("🙅‍♀️ No remaining text after signal, skipping output.")
+                            text_to_paste = None
+                            paste_successful = False
                 else:
-                    # --- 2b. No Signal Match: Process based on current_processing_mode --- 
+                    # No signal word found, process in current mode
                     if current_processing_mode == 'normal':
-                        logger.info("No signal detected, mode is 'normal'. Pasting raw text.")
-                        text_to_paste = final_full_sanitized_text
-                        paste_successful = True # Assume success if pasting raw text
+                        text_to_paste = cleaned_text
+                        paste_successful = True
                     elif current_processing_mode == 'llm':
-                        logger.info("No signal detected, mode is 'llm'. Sending to default LLM.")
                         self.notification_manager.show_message("🧠 Sending to LLM...")
-                        # Use llm_client.transform_text directly (no specific template)
                         transformed_text = self.llm_client.transform_text(
-                            prompt=final_full_sanitized_text,
+                            prompt=cleaned_text,
                             notification_manager=self.notification_manager
                         )
                         text_to_paste = transformed_text
                         paste_successful = text_to_paste is not None
                     elif current_processing_mode == 'de-CH':
-                        logger.info("No signal detected, mode is 'de-CH'. Using translation template.")
                         self.notification_manager.show_message("🇨🇭 Translating...")
-                        # Retrieve the specific command config for 'de-CH'
                         translation_command_config = self.commands_by_name.get('mode:de-CH')
                         if translation_command_config and translation_command_config.get('template'):
-                            context = {'text': final_full_sanitized_text}
+                            context = {'text': cleaned_text}
                             prompt = translation_command_config['template'].format(**context)
                             model_override = translation_command_config.get('llm_model_override')
                             transformed_text = self.llm_client.transform_text(
@@ -257,11 +373,20 @@ class AudioProcessor:
                             text_to_paste = f"Error: Config for mode '{current_processing_mode}' missing."
                             paste_successful = False
                     else:
-                        logger.warning(f"Unknown processing mode '{current_processing_mode}' and no signal matched.")
+                        logger.warning(f"Unknown processing mode '{current_processing_mode}'.")
                         text_to_paste = f"Error: Unknown mode '{current_processing_mode}'"
                         paste_successful = False
-                        new_processing_mode = default_processing_mode # Revert to default on error
-
+                
+                # Return early since we've handled the remainder with new mode/hint
+                logger.debug(f"[DEBUG] text_to_paste value before return: '{text_to_paste}'")
+                logger.debug(f"[DEBUG] Final Value: paste_successful={paste_successful} before return.")
+                logger.info(f"🏁 Audio processing finished. Returning: paste_successful={paste_successful}, mode='{new_processing_mode}', hint='{new_stt_hint}'")
+                return {
+                    'text_to_paste': text_to_paste,
+                    'new_processing_mode': new_processing_mode,
+                    'new_stt_hint': new_stt_hint,
+                    'paste_successful': paste_successful 
+                }
             # else: final_full_sanitized_text was empty or filtered out
                      
         except Exception as e:

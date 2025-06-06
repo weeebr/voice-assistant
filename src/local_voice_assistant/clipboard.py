@@ -2,6 +2,7 @@ import logging
 import subprocess
 import time
 from pynput.keyboard import Controller, Key # Requires pynput
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,22 @@ class ClipboardManager:
             logger.error(f"⌨️💥 Failed to initialize pynput Controller: {e}. Paste/Backspace simulation will fail.")
             self.kb_controller = None
 
+    def clean_output_text(self, text):
+        exclusion_phrases = [
+            r"\bthanks? for watching\b",
+            r"\bthank you\b",
+            r"\byou\b"
+        ]
+        # Remove phrases and any trailing punctuation/spaces
+        def remove_phrases(s):
+            s_clean = s
+            for pattern in exclusion_phrases:
+                # Match phrase plus any trailing punctuation and whitespace
+                s_clean = re.sub(pattern + r'[.!?,;:…\s]*', '', s_clean, flags=re.IGNORECASE)
+            # Remove extra spaces left by removals
+            return re.sub(r'\s+', ' ', s_clean).strip()
+        return remove_phrases(text)
+
     def get_content(self):
         """Reads text content from the system clipboard using pbpaste."""
         logger.debug("📋 Attempting to read clipboard content...")
@@ -36,7 +53,7 @@ class ClipboardManager:
             if process.returncode == 0:
                 clipboard_text = process.stdout.strip()
                 logger.info(f"📋✅ Read clipboard content (Length: {len(clipboard_text)}).")
-                return clipboard_text
+                return self.clean_output_text(clipboard_text)
             else:
                 logger.warning(f"📋⚠️ pbpaste returned non-zero code ({process.returncode}). Assuming empty or non-text clipboard. Stderr: {process.stderr.strip()}")
                 return ""
@@ -110,12 +127,16 @@ class ClipboardManager:
             logger.debug("Skipping copy/paste for empty text.")
             return False
         
-        copy_success = self.copy(text)
+        copy_success = self.copy(self.clean_output_text(text))
         paste_success = False
         if copy_success:
             # Allow a tiny moment for clipboard to update system-wide
             time.sleep(0.05)
             paste_success = self.paste_cmd_v()
+            if paste_success and self.kb_controller:
+                time.sleep(0.05)
+                # self.kb_controller.press(Key.enter)
+                # self.kb_controller.release(Key.enter)
         else:
             logger.warning("Skipping paste because copy failed.")
             

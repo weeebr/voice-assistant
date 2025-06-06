@@ -104,7 +104,7 @@ class Orchestrator:
 
         # NERServiceClient: Pass the URL
         logger.info(f"🧐 Configuring NERServiceClient to use service at: {ner_service_url}")
-        self.ner_service_client = NERServiceClient(ner_service_url)
+        self.ner_service_client = NERServiceClient(ner_service_url) if ner_service_url else None
 
         # HotkeyManager: Needs PTT key name
         ptt_key_set = self.VALID_PTT_KEYS.get(ptt_hotkey.lower(), self.VALID_PTT_KEYS[self.DEFAULT_PTT_KEY_NAME])
@@ -157,7 +157,6 @@ class Orchestrator:
         # --- Initialize Audio Processor (Pass necessary components/params) ---
         self.audio_processor = AudioProcessor(
             stt=self.stt,
-            # Pass individual config values it might need, or let it read env vars
             initial_language=self.language,
             notification_manager=self.notification_manager,
             clipboard_manager=self.clipboard_manager,
@@ -253,7 +252,8 @@ class Orchestrator:
                 frames,
                 self.processing_mode,
                 self.next_stt_language_hint,
-                self.DEFAULT_PROCESSING_MODE # Pass default mode explicitly
+                self.DEFAULT_PROCESSING_MODE, # Pass default mode explicitly
+                frames # Pass frames for potential re-running STT
             )
             self.processing_mode = processing_result.get('new_processing_mode', self.processing_mode)
             self.next_stt_language_hint = processing_result.get('new_stt_hint', None)
@@ -274,6 +274,14 @@ class Orchestrator:
                      self.notification_manager.hide_overlay()
                 self._last_paste_successful = False
             logger.info(f"Orchestrator state after processing: Mode='{self.processing_mode}', Next Hint='{self.next_stt_language_hint}'")
+            # --- Always auto-reset to English after any German run (de-DE or de-CH) ---
+            if self.next_stt_language_hint in ('de-DE', 'de-CH'):
+                logger.info(f"🔄 Auto-resetting language hint to 'en' after German/Swiss German run (was: {self.next_stt_language_hint}).")
+                self.next_stt_language_hint = 'en'
+            # --- Always auto-reset processing_mode to 'normal' after Swiss German run ---
+            if self.processing_mode == 'de-CH':
+                logger.info("🔄 Auto-resetting processing mode to 'normal' after Swiss German run.")
+                self.processing_mode = 'normal'
         except Exception as e:
             logger.exception("💥 Error during synchronous audio processing:")
             self.notification_manager.show_message("Error processing audio.", duration=3.0)

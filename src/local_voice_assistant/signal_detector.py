@@ -58,19 +58,29 @@ def find_matching_signal(text: str, signal_configs: List[Dict]) -> Tuple[Optiona
                      match_found = True
                      remainder = text[signal_len:]
                      text_for_handler = remainder.lstrip(',.?!;: ').strip()
+                     # If remainder is empty, return None to indicate no text to process
+                     if not text_for_handler:
+                         text_for_handler = None
              elif match_position == 'end':
                   if original_text_lower.endswith(phrase_lower):
                       match_found = True
                       remainder = text[:-signal_len]
                       text_for_handler = remainder.rstrip(',.?!;: ').strip()
+                      # If remainder is empty, return None to indicate no text to process
+                      if not text_for_handler:
+                          text_for_handler = None
              elif match_position == 'exact':
                   if text_for_exact_match == phrase_lower:
                       match_found = True
-                      text_for_handler = "" # Exact phrase usually doesn't pass text
+                      text_for_handler = None # Exact phrase doesn't pass text
              else: # 'anywhere' (default) - Pass full text for processing
                  if phrase_lower in original_text_lower:
                      match_found = True
                      # For 'anywhere', text_for_handler remains the original full text
+                     # Only return None if the text is empty after cleaning
+                     cleaned_text = text.strip()
+                     if not cleaned_text:
+                         text_for_handler = None
              # ------------------------------------
 
              if match_found:

@@ -167,6 +167,20 @@ class ActionExecutor:
                      text_to_paste = format_ner_json_custom({"error": "Unknown NER failure."})
                      paste_successful = False
             
+            elif action_type == "speak":
+                logger.info(f"🎬 Executing Action: {action_type}")
+                # Support language/model selection via action_value (e.g., 'speak:en')
+                lang = action_value or "de"
+                # Map language to model (expand as needed)
+                model_map = {
+                    "de": "tts_models/de/thorsten/tacotron2-DDC",
+                    "en": "tts_models/en/ljspeech/tacotron2-DDC",
+                    # Add more mappings as needed
+                }
+                model = model_map.get(lang, model_map["de"])
+                paste_successful = False  # Always False for TTS-only
+                text_to_paste = None  # No text to paste, just TTS
+            
             # ... other actions ...
 
         # --- Determine if only language hint was set --- 
