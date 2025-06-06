@@ -47,7 +47,8 @@ class HotkeyManager:
         }
         self._active_combos = set()
         self._last_action_time = 0
-        self._action_cooldown = 0.1  # 100ms cooldown between actions
+        self._action_cooldown = 0.1  # 100ms cooldown between actionsLet's see if this works, shall we?
+        
         self._action_cooldowns = {}
 
     def _update_key_state(self, key, is_pressed):
@@ -144,6 +145,14 @@ class HotkeyManager:
 
         try:
             logger.debug(f"HotkeyManager: Key pressed: {key}")
+            
+            # Check for Escape key first - it should override everything
+            if key == keyboard.Key.esc:
+                logger.debug("HotkeyManager: Escape key detected - cancelling recording")
+                self._trigger_action("cancel", self.on_cancel)
+                self._reset_state()  # Reset all state
+                return True
+            
             self._update_key_state(key, True)
             logger.debug(f"HotkeyManager: Current modifier state: {self._modifier_keys}")
             should_continue = self._check_hotkey_combos()
@@ -186,6 +195,8 @@ class HotkeyManager:
                 self._active_combos.discard('option_left')
             elif key == keyboard.Key.right:
                 self._active_combos.discard('option_right')
+            elif key == keyboard.Key.esc:
+                self._reset_state()  # Reset all state when Escape is released
             
             return True
         except Exception as e:
