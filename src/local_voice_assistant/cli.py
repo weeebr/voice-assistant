@@ -113,8 +113,8 @@ def main():
         min_ptt_duration = float(os.getenv('MIN_PTT_DURATION', '1.2')) # Convert to float
 
         # --- ADD: NER Service URL ---
-        # Assuming NERServiceClient will also read from env vars or needs URL passed
-        ner_service_url = os.getenv('NER_SERVICE_URL', 'http://localhost:5001/extract')
+        # Only set NER service URL if --ner flag is provided
+        ner_service_url = 'http://localhost:5001/extract' if args.ner else None
         # ----------------------------
 
         # --- ADD: Other potential LLM details if needed from .env ---

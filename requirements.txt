@@ -19,3 +19,4 @@ gliner
 Flask
 # Add OpenAI client
 openai
+PyQt6

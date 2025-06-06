@@ -84,6 +84,38 @@ class ClipboardManager:
             logger.error(f"📋💥 Unexpected error copying text: {e}")
         return False # Indicate failure
 
+    def copy_and_paste(self, text):
+        """Copies the given text and then simulates Cmd+V paste."""
+        if not text:
+            logger.debug("Skipping copy/paste for empty text.")
+            return False
+        
+        try:
+            # Clean and copy text
+            cleaned_text = self.clean_output_text(text)
+            copy_success = self.copy(cleaned_text)
+            
+            if not copy_success:
+                logger.warning("Skipping paste because copy failed.")
+                return False
+                
+            # Allow a tiny moment for clipboard to update system-wide
+            time.sleep(0.1)  # Increased delay for better reliability
+            
+            # Perform paste
+            paste_success = self.paste_cmd_v()
+            
+            if paste_success:
+                logger.info("✅ Copy and paste completed successfully")
+                return True
+            else:
+                logger.error("❌ Paste failed after successful copy")
+                return False
+                
+        except Exception as e:
+            logger.error(f"💥 Error during copy/paste operation: {e}")
+            return False
+
     def _simulate_keystroke(self, action_name, key_action_func):
         """Internal helper to simulate keystrokes with suppression and error handling."""
         if not self.kb_controller:
@@ -91,18 +123,28 @@ class ClipboardManager:
             return False
 
         try:
-            self.owner.suppress_hotkeys(True) # Call owner method
-            logger.debug(f"🔒 Requesting hotkey suppression for {action_name} simulation.")
+            # Suppress hotkeys before action
+            self.owner.suppress_hotkeys(True)
+            logger.debug(f"🔒 Hotkey suppression enabled for {action_name}")
+            
+            # Perform the action
             key_action_func(self.kb_controller)
-            logger.debug(f"⌨️✅ {action_name} simulation successful.")
+            logger.debug(f"⌨️✅ {action_name} simulation successful")
+            
+            # Add a small delay after action
+            time.sleep(0.1)
+            
             return True
+            
         except Exception as e:
             logger.error(f"⌨️❌ Error during {action_name} simulation: {e}")
             return False
+            
         finally:
-            time.sleep(0.05) # Delay before re-enabling listener
-            self.owner.suppress_hotkeys(False) # Call owner method
-            logger.debug(f"🔓 Requesting hotkey unsuppression after {action_name} simulation.")
+            # Always re-enable hotkeys
+            time.sleep(0.1)  # Increased delay for better reliability
+            self.owner.suppress_hotkeys(False)
+            logger.debug(f"🔓 Hotkey suppression disabled after {action_name}")
 
     def paste_cmd_v(self):
         """Simulates Cmd+V keystroke."""
@@ -120,25 +162,4 @@ class ClipboardManager:
         # Use a slightly shorter delay for backspace potentially
         # Note: Delay is now handled in the _simulate_keystroke finally block
         return self._simulate_keystroke("Backspace", action)
-
-    def copy_and_paste(self, text):
-        """Copies the given text and then simulates Cmd+V paste."""
-        if not text:
-            logger.debug("Skipping copy/paste for empty text.")
-            return False
-        
-        copy_success = self.copy(self.clean_output_text(text))
-        paste_success = False
-        if copy_success:
-            # Allow a tiny moment for clipboard to update system-wide
-            time.sleep(0.05)
-            paste_success = self.paste_cmd_v()
-            if paste_success and self.kb_controller:
-                time.sleep(0.05)
-                # self.kb_controller.press(Key.enter)
-                # self.kb_controller.release(Key.enter)
-        else:
-            logger.warning("Skipping paste because copy failed.")
-            
-        return copy_success and paste_success 
  
