@@ -100,41 +100,39 @@ echo "✅ Local package installation checked."
 NER_SERVICE_PID="" # Initialize PID variable
 NER_PORT=5001 # Define the port used by the service
 
-echo "🧠 Checking for existing process on port $NER_PORT..."
-# Use lsof to find the PID listening on the port. -t gives only the PID.
-# Redirect errors to /dev/null in case port is not in use.
-EXISTING_PID=$(lsof -t -i :"$NER_PORT" 2>/dev/null || true)
+# Check if --ner is present in the arguments
+if [[ " $@ " =~ " --ner " ]]; then
+    echo "🧠 Checking for existing process on port $NER_PORT..."
+    EXISTING_PID=$(lsof -t -i :"$NER_PORT" 2>/dev/null || true)
 
-if [ -n "$EXISTING_PID" ]; then
-    echo "⚠️ Found existing process (PID: $EXISTING_PID) on port $NER_PORT. Attempting to stop it..."
-    kill "$EXISTING_PID" || true # Send SIGTERM, ignore error if already stopped
-    sleep 1 # Give it a moment to terminate
-    # Verify if it stopped
-    if ps -p "$EXISTING_PID" > /dev/null; then
-        echo "⛔ Process $EXISTING_PID did not stop gracefully. Trying force kill..."
-        kill -9 "$EXISTING_PID" || true
-        sleep 1
-    fi
-    # Final check
-    if lsof -t -i :"$NER_PORT" > /dev/null 2>&1; then
-         echo "❌ ERROR: Failed to free port $NER_PORT. Please stop the process (PID: $EXISTING_PID) manually." 
-         exit 1
+    if [ -n "$EXISTING_PID" ]; then
+        echo "⚠️ Found existing process (PID: $EXISTING_PID) on port $NER_PORT. Attempting to stop it..."
+        kill "$EXISTING_PID" || true # Send SIGTERM, ignore error if already stopped
+        sleep 1 # Give it a moment to terminate
+        if ps -p "$EXISTING_PID" > /dev/null; then
+            echo "⛔ Process $EXISTING_PID did not stop gracefully. Trying force kill..."
+            kill -9 "$EXISTING_PID" || true
+            sleep 1
+        fi
+        if lsof -t -i :"$NER_PORT" > /dev/null 2>&1; then
+             echo "❌ ERROR: Failed to free port $NER_PORT. Please stop the process (PID: $EXISTING_PID) manually." 
+             exit 1
+        else
+             echo "✅ Port $NER_PORT cleared."
+        fi
     else
-         echo "✅ Port $NER_PORT cleared."
+        echo "👍 Port $NER_PORT is free."
     fi
-else
-    echo "👍 Port $NER_PORT is free."
-fi
 
-echo "🧠 Starting background NER Service..."
-if [ ! -f "$NER_SERVICE_SCRIPT" ]; then
-    echo "⚠️ NER service script '$NER_SERVICE_SCRIPT' not found. NER features will fail."
-else
-    echo "   (Logs are configured via Python logging to last_run.log)"
-    # Use explicit path to python within venv
-    "$VENV_DIR/bin/python" "$NER_SERVICE_SCRIPT" & # Launch in background without shell redirection
-    NER_SERVICE_PID=$! # Capture the PID of the background process
-    echo "✅ NER Service started in background (PID: $NER_SERVICE_PID)."
+    echo "🧠 Starting background NER Service..."
+    if [ ! -f "$NER_SERVICE_SCRIPT" ]; then
+        echo "⚠️ NER service script '$NER_SERVICE_SCRIPT' not found. NER features will fail."
+    else
+        echo "   (Logs are configured via Python logging to last_run.log)"
+        "$VENV_DIR/bin/python" "$NER_SERVICE_SCRIPT" & # Launch in background without shell redirection
+        NER_SERVICE_PID=$! # Capture the PID of the background process
+        echo "✅ NER Service started in background (PID: $NER_SERVICE_PID)."
+    fi
 fi
 # ------------------------------------
 

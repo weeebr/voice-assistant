@@ -19,7 +19,7 @@ from .clipboard import ClipboardManager
 from .llm_client import LLMClient
 from .hotkey import HotkeyManager
 from .audio_recorder import AudioRecorder
-from .audio_processor import AudioProcessor
+from .audio_processing import AudioProcessor
 from .notification_manager import NotificationManager
 from .api_client import NERServiceClient
 
@@ -27,7 +27,7 @@ from .api_client import NERServiceClient
 import config as app_config # Use alias
 from config import get_configured_signal_phrases
 import multiprocessing
-from src.local_voice_assistant.overlay_qt import OverlayWindow, build_overlay_text
+from .overlay_qt import OverlayWindow, build_overlay_text
 import subprocess
 import sys
 
