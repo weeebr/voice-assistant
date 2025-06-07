@@ -1,6 +1,6 @@
 """Executes parsed actions based on detected signals."""
 import logging
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any, Union
 
 # Import necessary components used by actions
 from .llm_client import LLMClient
@@ -25,9 +25,27 @@ class ActionExecutor:
         self.notification_manager = notification_manager 
         logger.debug("ActionExecutor initialized.")
 
+    def _parse_action(self, action: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Parse an action that could be either a string or a dictionary."""
+        if isinstance(action, str):
+            # Handle string format like "type:value"
+            parts = action.split(':', 1)
+            action_type = parts[0]
+            action_value = parts[1] if len(parts) > 1 else None
+            return {
+                'type': action_type,
+                'value': action_value,
+                'params': {}
+            }
+        elif isinstance(action, dict):
+            return action
+        else:
+            logger.error(f"Invalid action format: {action}")
+            return {'type': None}
+
     def execute_actions(
         self,
-        parsed_actions: List[Dict[str, Any]], 
+        parsed_actions: List[Union[str, Dict[str, Any]]], 
         context: Dict[str, Any], 
         chosen_signal_config: Dict[str, Any],
         # Remove unused parameters if they truly aren't needed
@@ -38,7 +56,7 @@ class ActionExecutor:
         Executes a list of parsed actions and determines the output and state changes.
 
         Args:
-            parsed_actions: List of parsed action dictionaries from ActionParser.
+            parsed_actions: List of parsed action dictionaries or strings from ActionParser.
             context: Dictionary containing 'text' (remainder) and 'clipboard'.
             chosen_signal_config: The configuration dictionary of the matched signal.
 
@@ -65,7 +83,8 @@ class ActionExecutor:
 
         action_types_executed = set()
 
-        for parsed_action in parsed_actions:
+        for raw_action in parsed_actions:
+            parsed_action = self._parse_action(raw_action)
             action_type = parsed_action.get('type')
             action_value = parsed_action.get('value')
             params = parsed_action.get('params', {})
