@@ -36,7 +36,7 @@ def find_matching_signal(text: str, signal_configs: List[Dict]) -> Tuple[Optiona
         if isinstance(signal_phrase_config, list):
             phrases_to_check = signal_phrase_config
         elif isinstance(signal_phrase_config, str):
-            phrases_to_check = [signal_phrase_config] # Wrap single string in a list
+            phrases_to_check = [signal_phrase_config]  # Wrap single string in a list
         else:
              logger.warning(f"Signal config 'signal_phrase' has invalid type ({type(signal_phrase_config)}): {config}. Skipping.")
              continue
@@ -45,12 +45,14 @@ def find_matching_signal(text: str, signal_configs: List[Dict]) -> Tuple[Optiona
         
         # --- Loop through phrases for this config ---                    
         for phrase in phrases_to_check:
-             if not phrase: continue # Skip empty strings in list
+             if not phrase: continue  # Skip empty strings in list
              
-             phrase_lower = phrase.lower() # Lowercase for matching
+             # Pre-processed phrase (lowercase, no punctuation) for exact matching
+             phrase_lower = phrase.lower()
+             phrase_exact = phrase_lower.translate(str.maketrans('', '', string.punctuation)).strip()
              signal_len = len(phrase)
              match_found = False
-             text_for_handler = text # Default based on 'anywhere'
+             text_for_handler = text  # Default based on 'anywhere'
              
              # --- Matching Logic (applied to each phrase) --- 
              if match_position == 'start':
@@ -70,10 +72,10 @@ def find_matching_signal(text: str, signal_configs: List[Dict]) -> Tuple[Optiona
                       if not text_for_handler:
                           text_for_handler = None
              elif match_position == 'exact':
-                  if text_for_exact_match == phrase_lower:
+                  if text_for_exact_match == phrase_exact:
                       match_found = True
-                      text_for_handler = None # Exact phrase doesn't pass text
-             else: # 'anywhere' (default) - Pass full text for processing
+                      text_for_handler = None  # Exact phrase doesn't pass text
+             else:  # 'anywhere' (default) - Pass full text for processing
                  if phrase_lower in original_text_lower:
                      match_found = True
                      # For 'anywhere', text_for_handler remains the original full text
@@ -84,9 +86,9 @@ def find_matching_signal(text: str, signal_configs: List[Dict]) -> Tuple[Optiona
              # ------------------------------------
 
              if match_found:
-                 matched_phrase_in_list = phrase # Store the phrase that actually matched
+                 matched_phrase_in_list = phrase  # Store the phrase that actually matched
                  logger.info(f"🚥 Signal detected: '{matched_phrase_in_list}' (Config: '{config.get('name', 'Unnamed')}', Mode: '{match_position}')")
-                 return config, text_for_handler # Return matched config and remaining text
+                 return config, text_for_handler  # Return matched config and remaining text
 
     # If no match found after checking all configs
     return None, None 

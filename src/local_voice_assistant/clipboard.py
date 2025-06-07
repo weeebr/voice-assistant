@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import time
+import os
 from pynput.keyboard import Controller, Key # Requires pynput
 import re
 
@@ -23,21 +24,23 @@ class ClipboardManager:
             logger.error(f"⌨️💥 Failed to initialize pynput Controller: {e}. Paste/Backspace simulation will fail.")
             self.kb_controller = None
 
-    def clean_output_text(self, text):
-        exclusion_phrases = [
-            r"\bthanks? for watching\b",
-            r"\bthank you\b",
-            r"\byou\b"
+        # Pre-compile exclusion regexes for performance
+        self.exclusion_patterns = [
+            re.compile(r"\bthanks? for watching\b", re.IGNORECASE),
+            re.compile(r"\bthank you\b", re.IGNORECASE),
+            re.compile(r"\byou\b", re.IGNORECASE)
         ]
-        # Remove phrases and any trailing punctuation/spaces
-        def remove_phrases(s):
-            s_clean = s
-            for pattern in exclusion_phrases:
-                # Match phrase plus any trailing punctuation and whitespace
-                s_clean = re.sub(pattern + r'[.!?,;:…\s]*', '', s_clean, flags=re.IGNORECASE)
-            # Remove extra spaces left by removals
-            return re.sub(r'\s+', ' ', s_clean).strip()
-        return remove_phrases(text)
+
+        # Read clipboard delay from environment variable, default to 0.05
+        self.clipboard_delay = float(os.getenv('CLIPBOARD_DELAY', '0.05'))
+
+    def clean_output_text(self, text):
+        # Remove phrases and any trailing punctuation/spaces using pre-compiled regexes
+        s_clean = text
+        for pattern in self.exclusion_patterns:
+            s_clean = pattern.sub('', s_clean)
+        # Remove extra spaces left by removals
+        return re.sub(r'\s+', ' ', s_clean).strip()
 
     def get_content(self):
         """Reads text content from the system clipboard using pbpaste."""
@@ -99,8 +102,8 @@ class ClipboardManager:
                 logger.warning("Skipping paste because copy failed.")
                 return False
                 
-            # Allow a tiny moment for clipboard to update system-wide
-            time.sleep(0.1)  # Increased delay for better reliability
+            # Allow a tiny moment for clipboard to update system-wide using configurable delay
+            time.sleep(self.clipboard_delay)
             
             # Perform paste
             paste_success = self.paste_cmd_v()
@@ -131,8 +134,8 @@ class ClipboardManager:
             key_action_func(self.kb_controller)
             logger.debug(f"⌨️✅ {action_name} simulation successful")
             
-            # Add a small delay after action
-            time.sleep(0.1)
+            # Add a small delay after action using configurable delay
+            time.sleep(self.clipboard_delay)
             
             return True
             
@@ -142,7 +145,7 @@ class ClipboardManager:
             
         finally:
             # Always re-enable hotkeys
-            time.sleep(0.1)  # Increased delay for better reliability
+            time.sleep(self.clipboard_delay)  # Use configurable delay for better reliability
             self.owner.suppress_hotkeys(False)
             logger.debug(f"🔓 Hotkey suppression disabled after {action_name}")
 
@@ -159,7 +162,5 @@ class ClipboardManager:
         def action(kb):
             kb.press(Key.backspace)
             kb.release(Key.backspace)
-        # Use a slightly shorter delay for backspace potentially
-        # Note: Delay is now handled in the _simulate_keystroke finally block
         return self._simulate_keystroke("Backspace", action)
  

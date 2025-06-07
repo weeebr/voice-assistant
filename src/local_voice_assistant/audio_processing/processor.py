@@ -94,140 +94,61 @@ class AudioProcessor:
         original_frames: Optional[List[bytes]] = None
     ) -> Dict:
         """
-        Process audio with parallel segment processing.
-        
-        Args:
-            frames: Audio frames to process
-            current_processing_mode: Current processing mode
-            current_stt_hint: Current STT language hint
-            default_processing_mode: Default processing mode
-            original_frames: Original audio frames for potential re-running STT
-            
-        Returns:
-            Dict containing:
-            {
-                'text_to_paste': str or None,
-                'new_processing_mode': str,
-                'new_stt_hint': str or None,
-                'paste_successful': bool
-            }
+        Process audio as a single chunk for maximum performance.
         """
         logger.info(f"🔄 Starting audio processing (Mode: {current_processing_mode}, Default: {default_processing_mode})...")
-        
-        # Initialize state
-        text_to_paste = None
-        paste_successful = False
-        new_processing_mode = current_processing_mode
-        new_stt_hint = current_stt_hint
-        accumulated_raw_text = ""
-        
-        # Split audio into segments
-        segments = self.segmenter.split_audio(frames)
-        total_segments = len(segments)
-        
-        if total_segments == 0:
-            logger.warning("No valid segments found in audio")
-            return {'paste_successful': False, 'mode': current_processing_mode, 'hint': current_stt_hint}
 
-        logger.info(f"Found {total_segments} audio segments to process")
+        # Combine all frames into one big segment
+        big_segment = b"".join(frames)
+        logger.info(f"Processing single chunk of length {len(big_segment)} bytes")
         
-        # Show initial progress
-        self.notification_manager.show_message(f"Processing {total_segments} segments...")
-        
-        # Log segment lengths
-        logger.info(f"Segment count: {total_segments}")
-        for idx, seg in enumerate(segments):
-            logger.info(f"Segment {idx+1} length: {len(seg)} bytes")
-
-        # Process segments in parallel
-        start_time = time.time()
-        transcribed_texts = self.transcriber.transcribe_parallel(segments, current_stt_hint)
-
-        # Log and stitch all segments
-        stitched_segments = []
-        for idx, text in enumerate(transcribed_texts):
-            if text:
-                logger.info(f"Segment {idx+1}/{total_segments} transcription: '{text}'")
-                stitched_segments.append(text)
-            else:
-                logger.warning(f"Segment {idx+1}/{total_segments} was empty!")
-                stitched_segments.append("")
-        accumulated_raw_text = " ".join(stitched_segments)
-        logger.info(f"Raw stitched text: '{accumulated_raw_text}'")
-        final_full_sanitized_text = accumulated_raw_text.strip()
-        logger.info(f"Sanitized stitched text: '{final_full_sanitized_text}'")
-
-        # Fallback: If any segment is empty, try transcribing the whole audio as one chunk
-        if any(not text for text in transcribed_texts):
-            logger.warning("At least one segment was empty, retrying transcription as a single chunk.")
-            big_segment = b"".join(segments)
-            fallback_text = self.transcriber.transcribe_segment(big_segment, current_stt_hint)
-            logger.info(f"Fallback transcription: '{fallback_text}'")
-            final_full_sanitized_text = fallback_text.strip()
+        # Transcribe the whole audio at once
+        full_text = self.transcriber.transcribe_segment(big_segment, current_stt_hint)
+        logger.info(f"Full transcription: '{full_text}'")
+        final_full_sanitized_text = full_text.strip()
 
         if not final_full_sanitized_text:
-            logger.info("No text transcribed from audio (even after fallback)")
+            logger.info("No text transcribed from audio")
             return {'paste_successful': False, 'mode': current_processing_mode, 'hint': current_stt_hint}
-            
-        logger.info(f"📝 Full transcription complete (Sanitized): '{final_full_sanitized_text}'")
-        
+
         # Log transcription if logger is available
         if self.transcription_logger:
             self.transcription_logger.info(final_full_sanitized_text)
-        
+
         # Apply output cleaning for filter phrases
         cleaned_text = self.clipboard_manager.clean_output_text(final_full_sanitized_text)
         if not cleaned_text:
             logger.info("🙅‍♀️ Detected only filter words or empty after cleaning, skipping.")
             return {'paste_successful': False, 'mode': current_processing_mode, 'hint': current_stt_hint}
-            
+
         # Check for signal words
         chosen_signal_config, text_for_signal_handler = find_matching_signal(
             cleaned_text,
             self.signal_configs
         )
-        
+
+        text_to_paste = None
+        paste_successful = False
+        new_processing_mode = current_processing_mode
+        new_stt_hint = current_stt_hint
+
         if chosen_signal_config:
             logger.info(f"🚥 Signal detected: '{chosen_signal_config.get('name', 'Unnamed')}'")
             overlay_msg = chosen_signal_config.get('overlay_message', "Processing signal...")
             self.notification_manager.show_message(overlay_msg)
-            
-            # Execute signal actions
             action_config_list = chosen_signal_config.get('action', [])
             context = {
                 'text': text_for_signal_handler or "",
                 'clipboard': self.clipboard_manager.get_content() or ""
             }
             action_results = self.action_executor.execute_actions(action_config_list, context, chosen_signal_config)
-            
-            # Update state based on action results
             new_processing_mode = action_results.get('new_mode', new_processing_mode)
             new_stt_hint = action_results.get('new_stt_hint', new_stt_hint)
-            
-            # If we have a new hint, re-run STT
             if new_stt_hint and new_stt_hint != current_stt_hint:
                 logger.info(f"🔄 Re-running STT with new hint: '{new_stt_hint}'")
-                try:
-                    # Re-run STT on original frames
-                    transcribed_texts = self.transcriber.transcribe_parallel(segments, new_stt_hint)
-                    accumulated_raw_text = " ".join(text for text in transcribed_texts if text)
-                    final_full_sanitized_text = accumulated_raw_text.strip()
-                    
-                    if final_full_sanitized_text:
-                        # Strip signal word from re-transcribed text
-                        signal_word = chosen_signal_config.get('signal_phrase', [''])[0].lower()
-                        signal_pos = final_full_sanitized_text.lower().find(signal_word)
-                        if signal_pos != -1:
-                            remainder_text = final_full_sanitized_text[signal_pos + len(signal_word):].strip()
-                            remainder_text = remainder_text.lstrip(',.?!;: ')
-                            cleaned_text = self.clipboard_manager.clean_output_text(remainder_text)
-                        else:
-                            cleaned_text = self.clipboard_manager.clean_output_text(final_full_sanitized_text)
-                except Exception as e:
-                    logger.error(f"Failed to re-run STT with new hint: {e}")
-                    return {'paste_successful': False, 'mode': current_processing_mode, 'hint': current_stt_hint}
-            
-            # Process based on new mode
+                full_text = self.transcriber.transcribe_segment(big_segment, new_stt_hint)
+                final_full_sanitized_text = full_text.strip()
+                cleaned_text = self.clipboard_manager.clean_output_text(final_full_sanitized_text)
             if cleaned_text:
                 if new_processing_mode == 'normal':
                     text_to_paste = cleaned_text
@@ -267,7 +188,6 @@ class AudioProcessor:
                 text_to_paste = None
                 paste_successful = False
         else:
-            # No signal word found, process in current mode
             if current_processing_mode == 'normal':
                 text_to_paste = cleaned_text
                 paste_successful = True
