@@ -4,6 +4,7 @@ import sounddevice as sd
 import threading
 import time # Potentially useful for delayed notifications later
 import os # <-- Add os import
+from .toast import ToastManager
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,8 @@ class NotificationManager:
     """
     def __init__(self, overlay, audio_capture):
         logger.debug("NotificationManager initializing...")
-        self.overlay = overlay # Store the overlay instance
+        self.overlay = overlay # Persistent overlay instance (help/commands)
+        self.toast_manager = ToastManager() # For transient toasts
         
         # Determine sample rate for beep, falling back to a default
         self.beep_sample_rate = 16000
@@ -65,39 +67,23 @@ class NotificationManager:
         except Exception as e:
             logger.error(f"🔊 Error during sounddevice playback: {e}")
 
-    def show_message(self, message, duration=None, group_id="assistant_message"):
-        """Shows a message on the overlay if available."""
-        if self.overlay:
-            try:
-                # Pass duration and group_id if overlay supports them
-                self.overlay.show_message(message, duration=duration, group_id=group_id)
-            except TypeError:
-                 # Fallback for older overlay implementations that might not accept duration/group_id
-                 try:
-                     logger.warning("Overlay show_message might not support duration/group_id. Falling back.")
-                     self.overlay.show_message(message)
-                 except Exception as e_fallback:
-                     logger.error(f"❌ Error showing overlay message (fallback attempt): {e_fallback}")
-            except Exception as e:
-                # Handle other errors during the primary show_message call
-                logger.error(f"❌ Error showing overlay message: {e}")
+    def show_message(self, message, duration=None, group_id="assistant_message", as_toast=True):
+        """Show a toast or overlay message depending on as_toast flag."""
+        if as_toast:
+            self.toast_manager.show_message(message, duration=duration or 2000)
         else:
-            logger.warning("Overlay not available, cannot show message.")
+            if self.overlay:
+                try:
+                    self.overlay.show_message(message, duration=duration, group_id=group_id)
+                except Exception as e:
+                    logger.error(f"❌ Error showing overlay message: {e}")
+            else:
+                logger.warning("Overlay not available, cannot show overlay message.")
 
     def hide_overlay(self, group_id="assistant_message"):
-        """Hides the overlay message group if available."""
         if self.overlay:
-            logger.debug(f"NM hiding overlay group: {group_id}")
             try:
-                # Assuming hide_overlay might take a group_id to clear specific messages
                 self.overlay.hide_overlay(group_id=group_id)
-            except TypeError:
-                 # Fallback for older overlay implementations
-                 try:
-                     logger.warning("Overlay hide_overlay might not support group_id. Falling back.")
-                     self.overlay.hide_overlay()
-                 except Exception as e_fallback:
-                     logger.error(f"❌ Error hiding overlay (fallback attempt): {e_fallback}")
             except Exception as e:
                 logger.error(f"❌ Error hiding overlay: {e}")
         else:

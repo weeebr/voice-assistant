@@ -110,7 +110,7 @@ class AudioRecorder:
             logger.debug(f"🏁 Recording loop finished. Captured {len(self.frames)} frames.")
 
         except Exception as e:
-             logger.exception(f"💥 Error during recording stream: {e}")
+            logger.exception(f"💥 Error during recording stream: {e}")
         finally:
              if hasattr(stream, 'close'):
                  try:

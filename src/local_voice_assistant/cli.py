@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 import logging.handlers
 import warnings # <-- Add warnings import
+import threading
 
 # --- Suppress Semaphore Leak Warning --- 
 warnings.filterwarnings(
@@ -68,9 +69,20 @@ def setup_logging(log_level_str: str = "INFO"):
 from .orchestrator import Orchestrator
 # from .audio_interface import AudioCapture # No longer needed here
 
-def main():
+global_notification_manager = None
+
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+    if global_notification_manager:
+        try:
+            global_notification_manager.show_message(f"💥 {exc_value}", group_id='error_toast')
+        except Exception as toast_exc:
+            logger.error(f"Failed to show global error toast: {toast_exc}")
+
+sys.excepthook = global_exception_handler
+
+def run_orchestrator():
     # --- Pre-parse for --debug ---
-    # Lightweight parsing just for the debug flag before setting up logging
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     pre_args, _ = pre_parser.parse_known_args()
@@ -81,11 +93,8 @@ def main():
     # --- Main Argument Parsing (No --config needed) ---
     parser = argparse.ArgumentParser(
          description="Local Voice Assistant (PTT Mode Only)",
-         # Inherit from pre_parser to keep --debug consistent
          parents=[pre_parser]
     )
-    # Remove --config argument
-    # parser.add_argument('--config', type=str, default='config.yaml', help='Path to config.yaml')
     parser.add_argument('--ner', action='store_true', help='Enable NER service and client')
     args = parser.parse_args()
     logger.debug(f"Parsed arguments: {args}")
@@ -93,48 +102,24 @@ def main():
     # --- Load Configuration from Environment Variables ---
     logger.info("Loading configuration from environment variables...")
     try:
-        # STT Config
         model_size = os.getenv('MODEL_SIZE', 'small')
         device = os.getenv('DEVICE', 'cpu')
         compute_type = os.getenv('COMPUTE_TYPE', 'int8')
-        beam_size = int(os.getenv('BEAM_SIZE', '1')) # Convert to int
-
-        # Audio Config
+        beam_size = int(os.getenv('BEAM_SIZE', '1'))
         language = os.getenv('LANGUAGE', 'en-US')
-        sample_rate = int(os.getenv('SAMPLE_RATE', '16000')) # Convert to int
-        vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '2')) # Convert to int
-        mic_name = os.getenv('MIC_NAME') # Optional, None if empty/not set
-
-        # LLM Config
-        llm_provider = os.getenv('LLM_PROVIDER', 'google') # Default provider
-
-        # Orchestrator/Hotkey Config
+        sample_rate = int(os.getenv('SAMPLE_RATE', '16000'))
+        vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '2'))
+        mic_name = os.getenv('MIC_NAME')
+        llm_provider = os.getenv('LLM_PROVIDER', 'google')
         ptt_hotkey = os.getenv('PTT_HOTKEY', 'option')
-        min_ptt_duration = float(os.getenv('MIN_PTT_DURATION', '1.2')) # Convert to float
-
-        # --- ADD: NER Service URL ---
-        # Only set NER service URL if --ner flag is provided
+        min_ptt_duration = float(os.getenv('MIN_PTT_DURATION', '1.2'))
         ner_service_url = 'http://localhost:5001/extract' if args.ner else None
-        # ----------------------------
-
-        # --- ADD: Other potential LLM details if needed from .env ---
-        # Example: Get specific tokens/temp if they were in .env
-        # anthropic_max_tokens = int(os.getenv('ANTHROPIC_MAX_TOKENS', '1000'))
-        # anthropic_temperature = float(os.getenv('ANTHROPIC_TEMPERATURE', '0.7'))
-        # openai_max_tokens = int(os.getenv('OPENAI_MAX_TOKENS', '1000'))
-        # openai_temperature = float(os.getenv('OPENAI_TEMPERATURE', '0.7'))
-        # Note: Currently LLMClient reads these itself using config.get,
-        # we'll adapt LLMClient later if needed, or pass these down.
-        # For now, let's focus on the core settings from config.yaml.
-
         logger.info("Configuration loaded successfully from environment.")
-        # Log loaded values at debug level
         logger.debug(f"  MODEL_SIZE={model_size}, DEVICE={device}, COMPUTE_TYPE={compute_type}, BEAM_SIZE={beam_size}")
         logger.debug(f"  LANGUAGE={language}, SAMPLE_RATE={sample_rate}, VAD_AGGRESSIVENESS={vad_aggressiveness}, MIC_NAME={mic_name}")
         logger.debug(f"  LLM_PROVIDER={llm_provider}")
         logger.debug(f"  PTT_HOTKEY={ptt_hotkey}, MIN_PTT_DURATION={min_ptt_duration}")
         logger.debug(f"  NER_SERVICE_URL={ner_service_url}")
-
     except ValueError as e:
         logger.error(f"❌ Configuration Error: Invalid numeric value in environment variable. {e}")
         sys.exit(1)
@@ -142,43 +127,43 @@ def main():
         logger.error(f"❌ Unexpected error loading configuration from environment: {e}")
         sys.exit(1)
 
-    # Initialize and start Orchestrator background tasks
-    _orchestrator_instance = None # Keep a reference for potential cleanup
+    from .orchestrator import Orchestrator
+    global global_notification_manager
+    _orchestrator_instance = None
     try:
         logger.info("Initializing Orchestrator...")
-        # Pass individual config values instead of the config dict
-        _orchestrator_instance = Orchestrator(
-            model_size=model_size,
-            device=device,
-            compute_type=compute_type,
-            beam_size=beam_size,
-            language=language,
-            sample_rate=sample_rate,
-            vad_aggressiveness=vad_aggressiveness,
-            mic_name=mic_name,
-            llm_provider=llm_provider,
-            ptt_hotkey=ptt_hotkey,
-            min_ptt_duration=min_ptt_duration,
-            ner_service_url=ner_service_url if args.ner else None
-            # Pass other specific configs if needed (e.g., tokens, temp)
-        )
+        config = {
+            'model_size': model_size,
+            'device': device,
+            'compute_type': compute_type,
+            'beam_size': beam_size,
+            'language': language,
+            'sample_rate': sample_rate,
+            'vad_aggressiveness': vad_aggressiveness,
+            'mic_name': mic_name,
+            'llm_provider': llm_provider,
+            'ptt_hotkey': ptt_hotkey,
+            'min_ptt_duration': min_ptt_duration,
+            'ner_service_url': ner_service_url if args.ner else None
+        }
+        _orchestrator_instance = Orchestrator(config)
+        global_notification_manager = _orchestrator_instance.notification_manager
         logger.info("Starting Orchestrator background tasks...")
-        _orchestrator_instance.start() # This should now return quickly
+        _orchestrator_instance.start()
         logger.info("Orchestrator tasks started.")
     except Exception as e:
-         logger.exception(f"💥 Fatal error during orchestrator setup or start: {e}")
-         return # Exit if orchestrator fails
+        logger.exception(f"💥 Fatal error during orchestrator setup or start: {e}")
+        return
 
-    # Keep the main thread alive
+if __name__ == '__main__':
+    # Set up basic logging first
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_DATEFMT)
+    
+    run_orchestrator()
     logger.info("🚀 Voice Assistant running. Press Ctrl+C to exit.")
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("👋 Keyboard interrupt received. Exiting...")
-        # Orchestrator cleanup should be handled by its own stop method or OS signals
-        # If explicit cleanup is needed, call _orchestrator_instance.stop() here
-        sys.exit(0) # Ensure clean exit
-
-if __name__ == '__main__':
-    main()
+        sys.exit(0)

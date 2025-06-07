@@ -80,6 +80,18 @@ class OverlayWindow(QWidget):
         QApplication.quit()
         sys.exit(0)
 
+# Simple static methods for compatibility
+class OverlayManager:
+    @staticmethod
+    def show_overlay(text, autohide_ms=5000):
+        # This won't be used when running as subprocess
+        pass
+        
+    @staticmethod
+    def hide_overlay():
+        # This won't be used when running as subprocess
+        pass
+
 if __name__ == "__main__":
     import config
     app = QApplication(sys.argv)

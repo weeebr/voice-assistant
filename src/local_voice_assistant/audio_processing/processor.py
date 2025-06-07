@@ -137,8 +137,10 @@ class AudioProcessor:
             overlay_msg = chosen_signal_config.get('overlay_message', "Processing signal...")
             self.notification_manager.show_message(overlay_msg)
             action_config_list = chosen_signal_config.get('action', [])
+            # Use text_for_signal_handler (signal word removed) for all further processing
+            text_for_action = text_for_signal_handler if text_for_signal_handler is not None else ''
             context = {
-                'text': text_for_signal_handler or "",
+                'text': text_for_action,
                 'clipboard': self.clipboard_manager.get_content() or ""
             }
             action_results = self.action_executor.execute_actions(action_config_list, context, chosen_signal_config)
@@ -149,14 +151,20 @@ class AudioProcessor:
                 full_text = self.transcriber.transcribe_segment(big_segment, new_stt_hint)
                 final_full_sanitized_text = full_text.strip()
                 cleaned_text = self.clipboard_manager.clean_output_text(final_full_sanitized_text)
-            if cleaned_text:
+                # Re-run signal detection and use new text_for_signal_handler
+                chosen_signal_config, text_for_signal_handler = find_matching_signal(
+                    cleaned_text,
+                    self.signal_configs
+                )
+                text_for_action = text_for_signal_handler if text_for_signal_handler is not None else ''
+            if text_for_action:
                 if new_processing_mode == 'normal':
-                    text_to_paste = cleaned_text
+                    text_to_paste = text_for_action
                     paste_successful = True
                 elif new_processing_mode == 'llm':
                     self.notification_manager.show_message("🧠 Sending to LLM...")
                     transformed_text = self.llm_client.transform_text(
-                        prompt=cleaned_text,
+                        prompt=text_for_action,
                         notification_manager=self.notification_manager
                     )
                     text_to_paste = transformed_text
@@ -165,7 +173,7 @@ class AudioProcessor:
                     self.notification_manager.show_message("🇨🇭 Translating...")
                     translation_command_config = self.commands_by_name.get('mode:de-CH')
                     if translation_command_config and translation_command_config.get('template'):
-                        context = {'text': cleaned_text}
+                        context = {'text': text_for_action}
                         prompt = translation_command_config['template'].format(**context)
                         model_override = translation_command_config.get('llm_model_override')
                         transformed_text = self.llm_client.transform_text(
@@ -184,7 +192,7 @@ class AudioProcessor:
                     text_to_paste = f"Error: Unknown mode '{new_processing_mode}'"
                     paste_successful = False
             else:
-                logger.info("🙅‍♀️ No text after cleaning, skipping output.")
+                logger.info("🙅‍♀️ No text after signal removal, skipping output.")
                 text_to_paste = None
                 paste_successful = False
         else:

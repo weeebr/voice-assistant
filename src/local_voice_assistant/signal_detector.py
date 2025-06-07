@@ -92,3 +92,12 @@ def find_matching_signal(text: str, signal_configs: List[Dict]) -> Tuple[Optiona
 
     # If no match found after checking all configs
     return None, None 
+
+class SignalDetector:
+    """Minimal SignalDetector class for compatibility. Wraps find_matching_signal."""
+    def __init__(self, signal_configs):
+        self.signal_configs = signal_configs or []
+
+    def find(self, text):
+        from .signal_detector import find_matching_signal
+        return find_matching_signal(text, self.signal_configs) 

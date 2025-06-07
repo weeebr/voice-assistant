@@ -47,8 +47,7 @@ class HotkeyManager:
         }
         self._active_combos = set()
         self._last_action_time = 0
-        self._action_cooldown = 0.1  # 100ms cooldown between actionsLet's see if this works, shall we?
-        
+        self._action_cooldown = 0.1  # 100ms cooldown between actions
         self._action_cooldowns = {}
 
     def _update_key_state(self, key, is_pressed):
@@ -77,6 +76,10 @@ class HotkeyManager:
             elif key in {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}:
                 self._modifier_keys['shift'] = is_pressed
             
+            # Handle overlay visibility based on Option+Shift state
+            if self._modifier_keys['option'] and self._modifier_keys['shift']:
+                self._trigger_action("help overlay", self.on_help_overlay, self._modifier_keys['ctrl'])
+            
             logger.debug(f"HotkeyManager: Current modifier state: {self._modifier_keys}")
             
         except Exception as e:
@@ -99,18 +102,13 @@ class HotkeyManager:
             self._action_cooldowns[action_name] = current_time
         except Exception as e:
             logger.error(f"HotkeyManager: Error triggering {action_name}: {e}")
+            if hasattr(self, 'notification_manager') and self.notification_manager:
+                self.notification_manager.show_message(f"💥 {e}", group_id='error_toast')
 
     def _check_hotkey_combos(self):
         """Check for active hotkey combinations and trigger appropriate actions."""
         logger.debug(f"HotkeyManager: Checking combos with state: {self._modifier_keys}")
         
-        # Option+Shift: Help Overlay
-        if self._modifier_keys['option'] and self._modifier_keys['shift'] and 'option_shift' not in self._active_combos:
-            logger.debug("HotkeyManager: Option+Shift combo detected")
-            self._active_combos.add('option_shift')
-            self._trigger_action("help overlay", self.on_help_overlay, self._modifier_keys['ctrl'])
-            # Don't return False here - let PTT continue
-
         # Option+ArrowRight: Stop Playback
         if self._modifier_keys['option'] and self._modifier_keys['arrow_right'] and 'option_right' not in self._active_combos:
             logger.debug("HotkeyManager: Option+ArrowRight combo detected")
@@ -161,6 +159,8 @@ class HotkeyManager:
         except Exception as e:
             logger.exception(f"HotkeyManager: Exception in _on_press: {e}")
             self._reset_state()
+            if hasattr(self, 'notification_manager') and self.notification_manager:
+                self.notification_manager.show_message(f"💥 {e}", group_id='error_toast')
             return True
 
     def _on_release(self, key):
@@ -185,12 +185,9 @@ class HotkeyManager:
             
             # Clear active combos when modifier keys are released
             if key in {keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r}:
-                self._active_combos.discard('option_shift')
                 self._active_combos.discard('option_right')
                 self._active_combos.discard('option_left')
                 self._active_combos.discard('ptt_active')
-            elif key in {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}:
-                self._active_combos.discard('option_shift')
             elif key == keyboard.Key.left:
                 self._active_combos.discard('option_left')
             elif key == keyboard.Key.right:
@@ -202,18 +199,21 @@ class HotkeyManager:
         except Exception as e:
             logger.exception(f"HotkeyManager: Exception in _on_release: {e}")
             self._reset_state()
+            if hasattr(self, 'notification_manager') and self.notification_manager:
+                self.notification_manager.show_message(f"💥 {e}", group_id='error_toast')
             return True
 
     def _reset_state(self):
-        """Reset all state variables to their default values."""
-        self._modifier_keys = {k: False for k in self._modifier_keys}
+        """Reset all state variables."""
         self.ptt_key_held = False
-        self._active_combos.clear()
+        self._suppressed = False
         self._send_enter_after_paste = False
-        self._last_action_time = 0
+        self._active_combos.clear()
+        self._modifier_keys = {k: False for k in self._modifier_keys}
+        # Don't hide overlay here - let it auto-hide
 
     def should_send_enter_after_paste(self):
-        """Check if Enter should be sent after paste."""
+        """Check if enter should be sent after paste."""
         return self._send_enter_after_paste
 
     def clear_enter_after_paste(self):
@@ -221,44 +221,41 @@ class HotkeyManager:
         self._send_enter_after_paste = False
 
     def start(self):
-        """Starts the keyboard listener in a separate thread."""
-        if self._listener_thread is not None and self._listener_thread.is_alive():
-            logger.warning("HotkeyManager: Listener already started.")
+        """Start the keyboard listener."""
+        if self._listener is not None:
+            logger.warning("HotkeyManager: Listener already running")
             return
 
-        logger.info("HotkeyManager: Starting keyboard listener...")
         try:
             self._listener = keyboard.Listener(
                 on_press=self._on_press,
-                on_release=self._on_release,
-                suppress=False
+                on_release=self._on_release
             )
-            self._listener.start()
-            self._listener_thread = threading.Thread(target=self._listener.join)
-            self._listener_thread.daemon = True
+            self._listener_thread = threading.Thread(target=self._listener.start, daemon=True)
             self._listener_thread.start()
-            logger.info("HotkeyManager: Keyboard listener started and running in background thread.")
+            logger.info("✅ HotkeyManager: Keyboard listener started")
         except Exception as e:
-            logger.exception(f"HotkeyManager: Failed to start keyboard listener: {e}")
+            logger.error(f"HotkeyManager: Failed to start keyboard listener: {e}")
             self._listener = None
-            raise
+            self._listener_thread = None
 
     def stop(self):
-        """Stops the keyboard listener."""
-        logger.info("HotkeyManager: Stopping keyboard listener...")
-        if self._listener:
-            try:
-                self._listener.stop()
-                logger.info("HotkeyManager: Keyboard listener stopped.")
-            except Exception as e:
-                logger.error(f"HotkeyManager: Error stopping listener: {e}")
-            finally:
-                self._listener = None
-                self._listener_thread = None
-        else:
-            logger.warning("HotkeyManager: Stop called but listener wasn't running.")
+        """Stop the keyboard listener."""
+        if self._listener is None:
+            logger.warning("HotkeyManager: No listener to stop")
+            return
+
+        try:
+            self._listener.stop()
+            self._listener = None
+            self._listener_thread = None
+            self._reset_state()
+            logger.info("✅ HotkeyManager: Keyboard listener stopped")
+        except Exception as e:
+            logger.error(f"HotkeyManager: Error stopping keyboard listener: {e}")
 
     def suppress(self, suppress: bool):
-        """Enable or disable suppression of hotkey callbacks."""
-        logger.debug(f"HotkeyManager: Setting suppression to {suppress}")
-        self._suppressed = suppress 
+        """Suppress or unsuppress hotkey handling."""
+        self._suppressed = suppress
+        if suppress:
+            self._reset_state() 
