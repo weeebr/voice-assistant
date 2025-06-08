@@ -6,41 +6,65 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QPalette, QColor
 
 def build_overlay_text(commands):
-    # Languages
-    langs = []
-    for c in commands:
-        if c.get('name', '').startswith('language:') or c.get('name', '').startswith('mode:de-CH'):
-            if 'de' in c['name'] and 'CH' in c['name']:
-                langs.append('🇨🇭')
-            elif 'de' in c['name']:
-                langs.append('🇩🇪')
-            elif 'en' in c['name']:
-                langs.append('🇬🇧')
-    lang_line = f"🎙️ {' '.join(sorted(set(langs), key=langs.index))}"
-
-    # LLM/AI
-    llm_cmds = []
-    for c in commands:
-        if 'llm' in c.get('name', '') or 'structure' in c.get('name', '') or 'prompt' in c.get('name', ''):
-            phrase = c['signal_phrase']
-            if isinstance(phrase, list):
-                llm_cmds.extend(phrase)
+    # Build a comprehensive help text dynamically from config
+    help_text = "🎙️ Voice Assistant 🇬🇧🇩🇪🇨🇭\n\n"
+    
+    # Categorize commands
+    categories = {
+        "📝 Transformations": [],
+        "🧠 AI Commands": [],
+        "🌐 Languages": [],
+        "📄 Templates": [],
+        "🔍 Other": []
+    }
+    
+    for cmd in commands:
+        name = cmd.get('name', '')
+        signal_phrases = cmd.get('signal_phrase', [])
+        action = cmd.get('action', [])
+        
+        # Skip commands without signal phrases
+        if not signal_phrases:
+            continue
+            
+        # Convert to list if it's a string
+        if isinstance(signal_phrases, str):
+            signal_phrases = [signal_phrases]
+        
+        # Skip certain internal commands
+        if any(phrase.lower() in ['chairman', 'swiss chairman'] for phrase in signal_phrases):
+            continue
+            
+        # Get the display phrase (first signal phrase)
+        display_phrase = signal_phrases[0]
+        
+        # Categorize based on name or action
+        if name.startswith('transform:'):
+            categories["📝 Transformations"].append(display_phrase)
+        elif name.startswith('language:'):
+            categories["🌐 Languages"].append(display_phrase)
+        elif name.startswith('template:') or 'process_template' in str(action):
+            categories["📄 Templates"].append(display_phrase)
+        elif 'llm' in name or 'llm' in str(action):
+            categories["🧠 AI Commands"].append(display_phrase)
+        elif name.startswith('ner:'):
+            categories["🔍 Other"].append(display_phrase)
+        else:
+            # Check action types
+            if 'shell_command' in str(action):
+                categories["📝 Transformations"].append(display_phrase)
             else:
-                llm_cmds.append(phrase)
-    llm_line = "🧠\n" + "\n".join(f"- {cmd}" for cmd in sorted(set(llm_cmds), key=llm_cmds.index))
-
-    # File
-    file_cmds = []
-    for c in commands:
-        if 'big files' in str(c.get('signal_phrase', '')) or 'read out' in str(c.get('signal_phrase', '')):
-            phrase = c['signal_phrase']
-            if isinstance(phrase, list):
-                file_cmds.extend(phrase)
-            else:
-                file_cmds.append(phrase)
-    file_line = "📄\n" + "\n".join(f"- {cmd}" for cmd in sorted(set(file_cmds), key=file_cmds.index))
-
-    return f"{lang_line}\n\n{llm_line}\n\n{file_line}"
+                categories["🔍 Other"].append(display_phrase)
+    
+    # Build the help text
+    for category, phrases in categories.items():
+        if phrases:
+            help_text += f"{category}:\n"
+            for phrase in sorted(phrases):
+                help_text += f"• {phrase}\n"
+            help_text += "\n"
+    
+    return help_text.strip()
 
 class OverlayWindow(QWidget):
     def __init__(self, text, autohide_ms=5000):
@@ -57,8 +81,8 @@ class OverlayWindow(QWidget):
 
         layout = QVBoxLayout()
         label = QLabel(text)
-        label.setStyleSheet("color: white; font-size: 16px; padding: 12px;")
-        label.setFont(QFont("Arial", 14))
+        label.setStyleSheet("color: white; font-size: 10px; padding: 12px;")
+        label.setFont(QFont("Arial", 10))
         label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(label)
         self.setLayout(layout)

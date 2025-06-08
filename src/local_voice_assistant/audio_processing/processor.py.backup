@@ -162,7 +162,7 @@ class AudioProcessor:
                     self.signal_configs
                 )
                 text_for_action = text_for_signal_handler if text_for_signal_handler is not None else ''
-            # Only process text_for_action if action executor didn't already produce results
+                        # Only process text_for_action if action executor didn't already produce results
             if text_for_action and not ('text_to_paste' in action_results and action_results.get('paste_successful')):
                 if new_processing_mode == 'normal':
                     text_to_paste = text_for_action
@@ -198,7 +198,6 @@ class AudioProcessor:
                     text_to_paste = f"Error: Unknown mode '{new_processing_mode}'"
                     paste_successful = False
             elif not ('text_to_paste' in action_results and action_results.get('paste_successful')):
-                # Only skip if action executor didn't already handle it
                 logger.info("🙅‍♀️ No text after signal removal, skipping output.")
                 text_to_paste = None
                 paste_successful = False

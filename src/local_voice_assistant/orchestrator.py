@@ -110,7 +110,7 @@ class Orchestrator:
             on_ctrl_press_during_ptt=self._on_ctrl_press_during_ptt,
             on_help_overlay=self._on_help_overlay,
             on_stop_playback=self._on_stop_playback,
-            on_dot_enter=self._on_dot_enter
+            on_dot_enter=self._on_arrow_left_enter
         )
         
         # State
@@ -196,10 +196,10 @@ class Orchestrator:
         logger.info("⏹️ Stopping playback...")
         # TODO: Implement playback stop logic
 
-    def _on_dot_enter(self):
-        """Handle dot enter request."""
-        logger.info("⏎ Sending Enter after paste")
-        self.hotkey_manager.clear_enter_after_paste()
+    def _on_arrow_left_enter(self):
+        """Handle arrow left request to send enter after paste."""
+        logger.info("⏎ Enter will be sent after paste")
+        # Don't clear the flag here - it will be cleared after the paste happens
 
     def _record_audio(self, ctrl_pressed: bool):
         """Record and process audio."""
@@ -230,6 +230,7 @@ class Orchestrator:
                     text_to_paste = result['text_to_paste']
                     if self.hotkey_manager.should_send_enter_after_paste():
                         self.clipboard_manager.copy_and_paste(text_to_paste, send_enter=True)
+                        self.hotkey_manager.clear_enter_after_paste()
                     else:
                         self.clipboard_manager.copy_and_paste(text_to_paste)
                     self.notification_manager.show_message(f"Pasted: {text_to_paste[:50]}", duration=2.0, group_id="paste_toast")
@@ -296,13 +297,11 @@ class Orchestrator:
         paste_successful = result.get('paste_successful', False)
         
         if paste_successful and text_to_paste:
-            self.clipboard_manager.copy_and_paste(text_to_paste)
-            
             if self.hotkey_manager.should_send_enter_after_paste():
-                kb = KeyboardController()
-                kb.press(Key.enter)
-                kb.release(Key.enter)
+                self.clipboard_manager.copy_and_paste(text_to_paste, send_enter=True)
                 self.hotkey_manager.clear_enter_after_paste()
+            else:
+                self.clipboard_manager.copy_and_paste(text_to_paste)
             
             self.notification_manager.show_message(f"Pasted: {text_to_paste[:50]}", duration=2.0, group_id="paste_toast")
         else:

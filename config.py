@@ -63,7 +63,7 @@ Ask up to 3 critical questions to clarify the following:
 
 1. Who should the LLM act as? (define its role/persona)
 2. What is the specific task or deliverable? (objective, scope)
-3. Who is the target audience and what’s their familiarity with the topic?
+3. Who is the target audience and what's their familiarity with the topic?
 4. What output format or structure is required? (bullet list, markdown, plain text, etc.)
 5. Are there any constraints, tone requirements, or banned phrases?
 6. Are examples or edge cases available?
@@ -129,8 +129,8 @@ Then, start with the largest files and refactor our codebase enforcing:
 """
   },
   {
-    "name": "template:optimize_prompt",
-    "signal_phrase": "optimize prompt",
+    "name": "template:optimize_reply",
+    "signal_phrase": "optimize reply",
     "match_position": "start",
     "action": ["process_template"],
     "template": """To perfectly regenerate your last output, please revisit what was missing from my very first instructions in this chat. 
@@ -177,7 +177,7 @@ You are a sharp human editor. Your job is to rewrite the supplied text so it sou
 - Keep punctuation plain‑ASCII: straight quotes (" "), standard apostrophes ('), regular hyphens (-), and full stops.  
 - Use active voice, short to mid‑length sentences, and a conversational tone.  
 - Vary sentence rhythm and paragraph length for a lived‑in feel.  
-- Address the reader with “you” when it makes sense.  
+- Address the reader with "you" when it makes sense.  
 - Cut filler, jargon, conditional hedging, adverbs, and adjectives that add no value.  
 - No marketing fluff, no emoji, no hashtags.  
 - Never mention AI, GPT, large language models, or your own reasoning (except if the content is about that topic).
@@ -218,6 +218,70 @@ Output exactly the following three lines (replace {ADD YOUR MODEL ID HERE} with 
     "action": ["ner_extract:types_source=spoken"],
     "template": "{clipboard}",
     "overlay_message": "🧐 Extracting Entities..."
+  },
+  {
+    "name": "transform:url",
+    "signal_phrase": ["decode", "encode"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys, urllib.parse, re; text=sys.stdin.read(); print(urllib.parse.unquote(text) if re.search(r'%[0-9A-Fa-f]{2}', text) else urllib.parse.quote(text), end='')\" | pbcopy",
+    "overlay_message": "🔗 URL Transformed"
+  },
+  {
+    "name": "transform:base64",
+    "signal_phrase": ["base64", "base 64"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys, base64, re; text=sys.stdin.read().strip(); is_b64=bool(re.match(r'^[A-Za-z0-9+/]*={0,2}$', text) and len(text)%4==0 and len(text)>0); print((base64.b64decode(text).decode() if is_b64 else base64.b64encode(text.encode()).decode()) if text else '', end='')\" | pbcopy",
+    "overlay_message": "🔐 Base64 Transformed"
+  },
+  {
+    "name": "transform:capitalize",
+    "signal_phrase": ["capitalize"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys; print(sys.stdin.read().title(), end='')\" | pbcopy",
+    "overlay_message": "Aa Capitalized"
+  },
+  {
+    "name": "transform:lowercase",
+    "signal_phrase": ["lowercase", "lower case"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys; print(sys.stdin.read().lower(), end='')\" | pbcopy",
+    "overlay_message": "aa Lowercased"
+  },
+  {
+    "name": "transform:uppercase",
+    "signal_phrase": ["uppercase", "upper case"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys; print(sys.stdin.read().upper(), end='')\" | pbcopy",
+    "overlay_message": "AA Uppercased"
+  },
+  {
+    "name": "transform:format_json",
+    "signal_phrase": ["format json", "json"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys, json; print(json.dumps(json.loads(sys.stdin.read()), indent=2))\" | pbcopy",
+    "overlay_message": "{ } JSON Formatted"
+  },
+  {
+    "name": "transform:format_jsx",
+    "signal_phrase": ["jsx", "format jsx"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/npx prettier --parser babel | pbcopy",
+    "overlay_message": "⚛️ JSX Formatted"
+  },
+  {
+    "name": "transform:format_xml",
+    "signal_phrase": ["format xml", "xml"],
+    "match_position": "start",
+    "action": ["shell_command"],
+    "command": "pbpaste | python3 -c \"import sys, xml.dom.minidom; print(xml.dom.minidom.parseString(sys.stdin.read()).toprettyxml())\" | pbcopy",
+    "overlay_message": "📄 XML Formatted"
   },
 ]
 

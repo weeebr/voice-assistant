@@ -25,22 +25,37 @@ class ClipboardManager:
             self.kb_controller = None
 
         # Pre-compile exclusion regexes for performance
+        # Each tuple contains (pattern, description)
         self.exclusion_patterns = [
-            re.compile(r"\bthanks? for watching\b", re.IGNORECASE),
-            re.compile(r"\bthank you\b", re.IGNORECASE),
-            re.compile(r"\byou\b", re.IGNORECASE)
+            (re.compile(r"^\s*thanks? for watching[.!?]?\s*$", re.IGNORECASE), "thanks for watching"),
+            (re.compile(r"^\s*thank you[.!?]?\s*$", re.IGNORECASE), "thank you"),
+            (re.compile(r"^\s*vielen dank[.!?]?\s*$", re.IGNORECASE), "vielen dank"),
+            (re.compile(r"^\s*Das war's für heute\.?\s*Bis zum nächsten Mal\.?\s*Tschüss?[.!?]?\s*$", re.IGNORECASE), "Das war's für heute. Bis zum nächsten Mal. Tschüss."),
+            (re.compile(r"^\s*Das war's für heute\.?\s*Bis zum nächsten Mal[.!?]?\s*$", re.IGNORECASE), "Das war's für heute. Bis zum nächsten Mal."),
+            (re.compile(r"^\s*Das war's für heute[.!?]?\s*$", re.IGNORECASE), "Das war's für heute"),
+            (re.compile(r"^\s*Danke fürs Zuhören[.!?]?\s*$", re.IGNORECASE), "Danke fürs Zuhören"),
+            (re.compile(r"^\s*See you later[.!?]?\s*$", re.IGNORECASE), "See you later"),
+            (re.compile(r"^\s*you[.!?]?\s*$", re.IGNORECASE), "you")
         ]
 
         # Read clipboard delay from environment variable, default to 0.05
         self.clipboard_delay = float(os.getenv('CLIPBOARD_DELAY', '0.05'))
 
+    def contains_filter_phrase(self, text):
+        """Check if text contains any filter phrases."""
+        for pattern, description in self.exclusion_patterns:
+            if pattern.search(text):
+                logger.info(f"🚫 Filter phrase detected: '{description}' in text: '{text}'")
+                return True
+        return False
+
     def clean_output_text(self, text):
-        # Remove phrases and any trailing punctuation/spaces using pre-compiled regexes
-        s_clean = text
-        for pattern in self.exclusion_patterns:
-            s_clean = pattern.sub('', s_clean)
-        # Remove extra spaces left by removals
-        return re.sub(r'\s+', ' ', s_clean).strip()
+        # Check if text contains filter phrases - if so, return empty string to suppress paste
+        if self.contains_filter_phrase(text):
+            logger.info("🚫 Filter phrase detected - suppressing paste")
+            return ""
+        # Otherwise return the text as-is
+        return text.strip()
 
     def get_content(self):
         """Reads text content from the system clipboard using pbpaste."""
@@ -87,16 +102,20 @@ class ClipboardManager:
             logger.error(f"📋💥 Unexpected error copying text: {e}")
         return False # Indicate failure
 
-    def copy_and_paste(self, text):
+    def copy_and_paste(self, text, send_enter=False):
         """Copies the given text and then simulates Cmd+V paste."""
         if not text:
             logger.debug("Skipping copy/paste for empty text.")
             return False
         
         try:
-            # Clean and copy text
-            cleaned_text = self.clean_output_text(text)
-            copy_success = self.copy(cleaned_text)
+            # Check for filter phrases first
+            if self.contains_filter_phrase(text):
+                logger.info("🚫 Filter phrase detected - suppressing entire paste")
+                return False
+            
+            # Copy text as-is (no cleaning/removal)
+            copy_success = self.copy(text)
             
             if not copy_success:
                 logger.warning("Skipping paste because copy failed.")
@@ -110,6 +129,13 @@ class ClipboardManager:
             
             if paste_success:
                 logger.info("✅ Copy and paste completed successfully")
+                
+                # Send Enter if requested
+                if send_enter:
+                    time.sleep(self.clipboard_delay)
+                    self._send_enter()
+                    logger.info("⏎ Sent Enter after paste")
+                
                 return True
             else:
                 logger.error("❌ Paste failed after successful copy")
@@ -163,4 +189,11 @@ class ClipboardManager:
             kb.press(Key.backspace)
             kb.release(Key.backspace)
         return self._simulate_keystroke("Backspace", action)
+    
+    def _send_enter(self):
+        """Simulates an Enter key press."""
+        def action(kb):
+            kb.press(Key.enter)
+            kb.release(Key.enter)
+        return self._simulate_keystroke("Enter", action)
  

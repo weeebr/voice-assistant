@@ -71,13 +71,13 @@ class HotkeyManager:
             # Update modifier key states
             elif key in {keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r}:
                 self._modifier_keys['option'] = is_pressed
-            elif key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
+            elif key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r, keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r}:
                 self._modifier_keys['ctrl'] = is_pressed
             elif key in {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}:
                 self._modifier_keys['shift'] = is_pressed
             
-            # Handle overlay visibility based on Option+Shift state
-            if self._modifier_keys['option'] and self._modifier_keys['shift']:
+            # Handle overlay visibility based on Option+Shift+Cmd state
+            if self._modifier_keys['option'] and self._modifier_keys['shift'] and self._modifier_keys['ctrl']:
                 self._trigger_action("help overlay", self.on_help_overlay, self._modifier_keys['ctrl'])
             
             logger.debug(f"HotkeyManager: Current modifier state: {self._modifier_keys}")

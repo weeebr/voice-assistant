@@ -200,6 +200,38 @@ class ActionExecutor:
                 paste_successful = False  # Always False for TTS-only
                 text_to_paste = None  # No text to paste, just TTS
             
+            elif action_type == "shell_command":
+                logger.info(f"🎬 Executing Action: {action_type}")
+                command = chosen_signal_config.get('command')
+                if command:
+                    try:
+                        import subprocess
+                        # Execute the shell command
+                        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                        if result.returncode == 0:
+                            # Command succeeded
+                            paste_successful = True
+                            # Get the transformed content from clipboard for pasting
+                            transformed_text = self.clipboard_manager.get_content()
+                            text_to_paste = transformed_text
+                            # Show overlay message if configured
+                            overlay_msg = chosen_signal_config.get('overlay_message')
+                            if overlay_msg and self.notification_manager:
+                                self.notification_manager.show_message(overlay_msg, duration=2.0)
+                        else:
+                            # Command failed
+                            logger.error(f"Shell command failed: {result.stderr}")
+                            paste_successful = False
+                            text_to_paste = f"Error: {result.stderr}"
+                    except Exception as e:
+                        logger.exception(f"Error executing shell command: {e}")
+                        paste_successful = False
+                        text_to_paste = f"Error: {str(e)}"
+                else:
+                    logger.warning("shell_command action requires 'command' in config.")
+                    paste_successful = False
+                    text_to_paste = "Error: shell_command action missing command."
+            
             # ... other actions ...
 
         # --- Determine if only language hint was set --- 
